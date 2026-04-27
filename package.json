@@ -1,0 +1,60 @@
+{
+  "name": "saso-willen-edition-electron",
+  "version": "1.0.0",
+  "description": "SASO Willen Edition Desktop - Inventory and Sales Management",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "rebuild": "electron-rebuild -f -w better-sqlite3",
+    "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "pack": "electron-vite build && electron-builder --dir",
+    "dist": "electron-vite build && electron-builder",
+    "typecheck": "tsc -b tsconfig.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.37.0",
+    "@google/generative-ai": "^0.21.0",
+    "better-sqlite3": "^11.0.0",
+    "electron-store": "^10.0.0",
+    "openai": "^4.77.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@electron-toolkit/preload": "^3.0.0",
+    "@electron-toolkit/utils": "^3.0.0",
+    "@electron/rebuild": "^3.6.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "@zxing/browser": "^0.1.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0",
+    "electron-vite": "^2.3.0",
+    "jsbarcode": "^3.11.6",
+    "lucide-react": "^0.454.0",
+    "postcss": "^8.4.47",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-router-dom": "^6.27.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0",
+    "zustand": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.willen-federation.saso",
+    "productName": "SASO Willen Edition",
+    "directories": { "buildResources": "build" },
+    "files": ["out/**/*"],
+    "protocols": [{ "name": "SASO Auth", "schemes": ["saso"] }],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg", "entitlementsInherit": "build/entitlements.mac.plist" },
+    "linux": { "target": "AppImage" }
+  }
+}
