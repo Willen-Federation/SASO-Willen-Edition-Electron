@@ -13,6 +13,7 @@ interface Settings {
   geminiModel: string
   authServerUrl: string
   authClientId: string
+  sasoServerUrl: string
   taxRate: string
   currency: string
   defaultLabelSize: string
@@ -53,6 +54,7 @@ export default function Settings() {
     geminiModel: 'gemini-1.5-pro',
     authServerUrl: '',
     authClientId: '',
+    sasoServerUrl: '',
     taxRate: '10',
     currency: 'JPY',
     defaultLabelSize: '58mm'
@@ -192,32 +194,53 @@ export default function Settings() {
 
         {tab === 'auth' && (
           <div className="space-y-4">
-            <p className="text-sm text-gray-500">OAuth 2.0 PKCE フローでブラウザ経由ログインを設定します。</p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+              <p className="font-medium mb-1">認証設定</p>
+              <p>SasoサーバーURLを設定するとID・パスワードでログインできます。未設定の場合はOAuth PKCEフローを使用します。</p>
+            </div>
+
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">認証サーバーURL</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">SasoサーバーURL</label>
               <input
                 type="url"
-                value={settings.authServerUrl}
-                onChange={(e) => set('authServerUrl', e.target.value)}
-                placeholder="https://auth.example.com"
+                value={settings.sasoServerUrl}
+                onChange={(e) => set('sasoServerUrl', e.target.value)}
+                placeholder="https://saso.example.com"
                 className="input-field"
               />
-              <p className="text-xs text-gray-400 mt-1">例: https://your-auth-server.com（末尾スラッシュ不要）</p>
+              <p className="text-xs text-gray-400 mt-1">SASO PHPバックエンドのURL（末尾スラッシュ不要）</p>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">クライアントID</label>
-              <input
-                type="text"
-                value={settings.authClientId}
-                onChange={(e) => set('authClientId', e.target.value)}
-                placeholder="your-client-id"
-                className="input-field"
-              />
-            </div>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-              <p className="font-medium mb-1">リダイレクトURI設定</p>
-              <p>認証サーバーに以下のリダイレクトURIを登録してください:</p>
-              <code className="block mt-1 font-mono bg-blue-100 px-2 py-1 rounded">saso://auth/callback</code>
+
+            <div className="border-t border-gray-100 pt-4">
+              <p className="text-sm text-gray-500 mb-3">OAuth 2.0 PKCE フロー設定（SasoサーバーURL未設定時に使用）</p>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">認証サーバーURL</label>
+                  <input
+                    type="url"
+                    value={settings.authServerUrl}
+                    onChange={(e) => set('authServerUrl', e.target.value)}
+                    placeholder="https://auth.example.com"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">例: https://your-auth-server.com（末尾スラッシュ不要）</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">クライアントID</label>
+                  <input
+                    type="text"
+                    value={settings.authClientId}
+                    onChange={(e) => set('authClientId', e.target.value)}
+                    placeholder="your-client-id"
+                    className="input-field"
+                  />
+                </div>
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
+                  <p className="font-medium mb-1">リダイレクトURI設定</p>
+                  <p>認証サーバーに以下のリダイレクトURIを登録してください:</p>
+                  <code className="block mt-1 font-mono bg-white px-2 py-1 rounded border border-gray-200">saso://auth/callback</code>
+                </div>
+              </div>
             </div>
           </div>
         )}

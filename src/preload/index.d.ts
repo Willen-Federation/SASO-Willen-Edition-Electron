@@ -1,8 +1,12 @@
 import type {
-  Product,
+  Item,
+  Color,
+  Size,
+  Feature,
+  ItemVar,
+  QuantityLog,
+  LabelTemplate,
   Category,
-  InventoryItem,
-  StockMovement,
   Customer,
   SalesOrder,
   DashboardStats,
@@ -21,25 +25,54 @@ interface CreateOrderData {
 declare global {
   interface Window {
     api: {
-      products: {
-        list: () => Promise<IpcResponse<Product[]>>
-        get: (idOrBarcode: string) => Promise<IpcResponse<Product>>
-        create: (data: Omit<Product, 'id' | 'created_at' | 'updated_at' | 'current_stock' | 'category_name'>) => Promise<IpcResponse<Product>>
-        update: (id: string, data: Partial<Product>) => Promise<IpcResponse<Product>>
+      items: {
+        list: () => Promise<IpcResponse<Item[]>>
+        get: (id: string) => Promise<IpcResponse<Item>>
+        create: (data: Omit<Item, 'id' | 'date_code' | 'created_at'>) => Promise<IpcResponse<Item>>
+        update: (id: string, data: Partial<Item>) => Promise<IpcResponse<Item>>
         delete: (id: string) => Promise<IpcResponse<void>>
-        search: (query: string) => Promise<IpcResponse<Product[]>>
+        search: (query: string) => Promise<IpcResponse<Item[]>>
+      }
+      colors: {
+        list: (itemId: string) => Promise<IpcResponse<Color[]>>
+        create: (data: Omit<Color, 'id'>) => Promise<IpcResponse<Color>>
+        update: (id: string, data: Partial<Color>) => Promise<IpcResponse<Color>>
+        delete: (id: string) => Promise<IpcResponse<void>>
+      }
+      sizes: {
+        list: (itemId: string) => Promise<IpcResponse<Size[]>>
+        create: (data: Omit<Size, 'id'>) => Promise<IpcResponse<Size>>
+        update: (id: string, data: Partial<Size>) => Promise<IpcResponse<Size>>
+        delete: (id: string) => Promise<IpcResponse<void>>
+      }
+      features: {
+        list: (itemId?: string) => Promise<IpcResponse<Feature[]>>
+        get: (fullCode: string) => Promise<IpcResponse<Feature>>
+        create: (itemId: string, colorCode: string, sizeCode: string) => Promise<IpcResponse<Feature>>
+        updateShelf: (fullCode: string, shelfNumber: string | null) => Promise<IpcResponse<Feature>>
+        delete: (fullCode: string) => Promise<IpcResponse<void>>
+        search: (barcode: string) => Promise<IpcResponse<Feature[]>>
+      }
+      itemvars: {
+        latest: (itemId: string) => Promise<IpcResponse<ItemVar | null>>
+        create: (data: Omit<ItemVar, 'id' | 'update_at'>) => Promise<IpcResponse<ItemVar>>
+      }
+      quantityLogs: {
+        list: (fullCode?: string) => Promise<IpcResponse<QuantityLog[]>>
+        stockIn: (fullCode: string, quantity: number, reason?: string) => Promise<IpcResponse<QuantityLog>>
+        shipment: (fullCode: string, quantity: number, reason?: string) => Promise<IpcResponse<QuantityLog>>
+        inventory: (fullCode: string, actualQuantity: number, reason?: string) => Promise<IpcResponse<QuantityLog>>
+        quantity: (fullCode: string) => Promise<IpcResponse<number>>
+      }
+      labelTemplates: {
+        list: () => Promise<IpcResponse<LabelTemplate[]>>
+        create: (data: Omit<LabelTemplate, 'id' | 'created_at'>) => Promise<IpcResponse<LabelTemplate>>
+        update: (id: string, data: Partial<LabelTemplate>) => Promise<IpcResponse<LabelTemplate>>
+        delete: (id: string) => Promise<IpcResponse<void>>
       }
       categories: {
         list: () => Promise<IpcResponse<Category[]>>
         create: (name: string, parentId?: string) => Promise<IpcResponse<Category>>
-      }
-      inventory: {
-        list: () => Promise<IpcResponse<InventoryItem[]>>
-        get: (productId: string) => Promise<IpcResponse<InventoryItem>>
-        adjust: (productId: string, quantity: number, type: StockMovement['type'], reason?: string) => Promise<IpcResponse<InventoryItem>>
-        stockIn: (productId: string, quantity: number, reason?: string) => Promise<IpcResponse<InventoryItem>>
-        stockOut: (productId: string, quantity: number, reason?: string) => Promise<IpcResponse<InventoryItem>>
-        movements: (productId?: string) => Promise<IpcResponse<StockMovement[]>>
       }
       sales: {
         list: () => Promise<IpcResponse<SalesOrder[]>>
@@ -65,6 +98,7 @@ declare global {
       }
       auth: {
         login: () => Promise<IpcResponse<void>>
+        loginWithCredentials: (id: string, password: string) => Promise<{ success: boolean; user?: { id: string; name: string }; error?: string }>
         logout: () => Promise<IpcResponse<void>>
         getUser: () => Promise<IpcResponse<AuthUser | null>>
         getToken: () => Promise<IpcResponse<string | null>>

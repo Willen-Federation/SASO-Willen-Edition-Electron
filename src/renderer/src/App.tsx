@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
-import Products from './pages/Products'
+import Items from './pages/Items'
 import Inventory from './pages/Inventory'
 import Sales from './pages/Sales'
 import Customers from './pages/Customers'
@@ -42,7 +42,7 @@ export default function App() {
         }
       >
         <Route index element={<Dashboard />} />
-        <Route path="products" element={<Products />} />
+        <Route path="items" element={<Items />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="sales" element={<Sales />} />
         <Route path="customers" element={<Customers />} />

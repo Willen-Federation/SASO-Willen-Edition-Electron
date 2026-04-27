@@ -1,28 +1,59 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 const api = {
-  products: {
-    list: () => ipcRenderer.invoke('products:list'),
-    get: (idOrBarcode: string) => ipcRenderer.invoke('products:get', idOrBarcode),
-    create: (data: unknown) => ipcRenderer.invoke('products:create', data),
-    update: (id: string, data: unknown) => ipcRenderer.invoke('products:update', id, data),
-    delete: (id: string) => ipcRenderer.invoke('products:delete', id),
-    search: (query: string) => ipcRenderer.invoke('products:search', query)
+  items: {
+    list: () => ipcRenderer.invoke('items:list'),
+    get: (id: string) => ipcRenderer.invoke('items:get', id),
+    create: (data: unknown) => ipcRenderer.invoke('items:create', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('items:update', id, data),
+    delete: (id: string) => ipcRenderer.invoke('items:delete', id),
+    search: (query: string) => ipcRenderer.invoke('items:search', query)
+  },
+  colors: {
+    list: (itemId: string) => ipcRenderer.invoke('colors:list', itemId),
+    create: (data: unknown) => ipcRenderer.invoke('colors:create', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('colors:update', id, data),
+    delete: (id: string) => ipcRenderer.invoke('colors:delete', id)
+  },
+  sizes: {
+    list: (itemId: string) => ipcRenderer.invoke('sizes:list', itemId),
+    create: (data: unknown) => ipcRenderer.invoke('sizes:create', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('sizes:update', id, data),
+    delete: (id: string) => ipcRenderer.invoke('sizes:delete', id)
+  },
+  features: {
+    list: (itemId?: string) => ipcRenderer.invoke('features:list', itemId),
+    get: (fullCode: string) => ipcRenderer.invoke('features:get', fullCode),
+    create: (itemId: string, colorCode: string, sizeCode: string) =>
+      ipcRenderer.invoke('features:create', itemId, colorCode, sizeCode),
+    updateShelf: (fullCode: string, shelfNumber: string | null) =>
+      ipcRenderer.invoke('features:updateShelf', fullCode, shelfNumber),
+    delete: (fullCode: string) => ipcRenderer.invoke('features:delete', fullCode),
+    search: (barcode: string) => ipcRenderer.invoke('features:search', barcode)
+  },
+  itemvars: {
+    latest: (itemId: string) => ipcRenderer.invoke('itemvars:latest', itemId),
+    create: (data: unknown) => ipcRenderer.invoke('itemvars:create', data)
+  },
+  quantityLogs: {
+    list: (fullCode?: string) => ipcRenderer.invoke('quantitylogs:list', fullCode),
+    stockIn: (fullCode: string, quantity: number, reason?: string) =>
+      ipcRenderer.invoke('quantitylogs:stockIn', fullCode, quantity, reason),
+    shipment: (fullCode: string, quantity: number, reason?: string) =>
+      ipcRenderer.invoke('quantitylogs:shipment', fullCode, quantity, reason),
+    inventory: (fullCode: string, actualQuantity: number, reason?: string) =>
+      ipcRenderer.invoke('quantitylogs:inventory', fullCode, actualQuantity, reason),
+    quantity: (fullCode: string) => ipcRenderer.invoke('quantitylogs:quantity', fullCode)
+  },
+  labelTemplates: {
+    list: () => ipcRenderer.invoke('labeltemplates:list'),
+    create: (data: unknown) => ipcRenderer.invoke('labeltemplates:create', data),
+    update: (id: string, data: unknown) => ipcRenderer.invoke('labeltemplates:update', id, data),
+    delete: (id: string) => ipcRenderer.invoke('labeltemplates:delete', id)
   },
   categories: {
     list: () => ipcRenderer.invoke('categories:list'),
     create: (name: string, parentId?: string) => ipcRenderer.invoke('categories:create', name, parentId)
-  },
-  inventory: {
-    list: () => ipcRenderer.invoke('inventory:list'),
-    get: (productId: string) => ipcRenderer.invoke('inventory:get', productId),
-    adjust: (productId: string, quantity: number, type: string, reason?: string) =>
-      ipcRenderer.invoke('inventory:adjust', productId, quantity, type, reason),
-    stockIn: (productId: string, quantity: number, reason?: string) =>
-      ipcRenderer.invoke('inventory:stockIn', productId, quantity, reason),
-    stockOut: (productId: string, quantity: number, reason?: string) =>
-      ipcRenderer.invoke('inventory:stockOut', productId, quantity, reason),
-    movements: (productId?: string) => ipcRenderer.invoke('inventory:movements', productId)
   },
   sales: {
     list: () => ipcRenderer.invoke('sales:list'),
@@ -48,6 +79,8 @@ const api = {
   },
   auth: {
     login: () => ipcRenderer.invoke('auth:login'),
+    loginWithCredentials: (id: string, password: string) =>
+      ipcRenderer.invoke('auth:loginWithCredentials', id, password),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getToken: () => ipcRenderer.invoke('auth:getToken'),

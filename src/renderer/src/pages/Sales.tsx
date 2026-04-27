@@ -3,7 +3,7 @@ import { Plus, ShoppingCart, CheckCircle, XCircle, Eye, Trash2, Search } from 'l
 import { useSales } from '../stores/useSales'
 import Modal from '../components/Modal'
 import BarcodeScanner from '../components/BarcodeScanner'
-import type { SalesOrder, SalesOrderItem, Product, Customer } from '@shared/types'
+import type { SalesOrder, SalesOrderItem, Feature, Customer } from '@shared/types'
 
 interface OrderItem {
   product_id: string
@@ -36,20 +36,22 @@ export default function Sales() {
   useEffect(() => { loadOrders(); loadCustomers() }, [])
 
   const handleBarcodeScan = async (barcode: string) => {
-    const res = await window.api.products.get(barcode)
-    if (res.success && res.data) {
-      addItem(res.data as Product)
+    const res = await window.api.features.search(barcode)
+    if (res.success && res.data && (res.data as Feature[]).length > 0) {
+      addFeature((res.data as Feature[])[0])
     } else {
-      setError(`バーコード \"${barcode}\" の商品が見つかりません`)
+      setError(`バーコード "${barcode}" のバリエーションが見つかりません`)
       setTimeout(() => setError(null), 3000)
     }
   }
 
-  const addItem = (p: Product) => {
+  const addFeature = (f: Feature) => {
+    const name = `${f.item_name || f.item_id} / ${f.color_name || f.color_code} / ${f.size_name || f.size_code}`
+    const price = f.current_price ?? 0
     setOrderItems((prev) => {
-      const existing = prev.find((i) => i.product_id === p.id)
-      if (existing) return prev.map((i) => i.product_id === p.id ? { ...i, quantity: i.quantity + 1 } : i)
-      return [...prev, { product_id: p.id, product_name: p.name, quantity: 1, unit_price: p.price, discount: 0 }]
+      const existing = prev.find((i) => i.product_id === f.full_code)
+      if (existing) return prev.map((i) => i.product_id === f.full_code ? { ...i, quantity: i.quantity + 1 } : i)
+      return [...prev, { product_id: f.full_code, product_name: name, quantity: 1, unit_price: price, discount: 0 }]
     })
   }
 

@@ -1,53 +1,100 @@
 import { ipcMain } from 'electron'
-import { getSetting, getProducts, searchProducts, getInventory, getInventoryByProductId, adjustStock, getOrders, createOrder, getDashboardStats } from '../database'
+import {
+  getSetting,
+  searchItems,
+  listFeatures,
+  getFeature,
+  addStockIn,
+  addShipment,
+  getFeatureCurrentQuantity,
+  listQuantityLogs,
+  getOrders,
+  createOrder,
+  getDashboardStats
+} from '../database'
 import { createAIProvider } from '../ai'
 import type { AIMessage, AIConfig, ToolDefinition, ToolCall } from '../../shared/types'
 
 const AI_TOOLS: ToolDefinition[] = [
   {
-    name: 'listProducts',
-    description: '商品一覧を取得する',
+    name: 'searchItems',
+    description: '商品を検索する',
     parameters: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: '検索キーワード（省略可）' }
+        query: { type: 'string', description: '検索キーワード' }
+      },
+      required: ['query']
+    }
+  },
+  {
+    name: 'getFeature',
+    description: 'バリエーション（バーコード単位）の詳細を取得する',
+    parameters: {
+      type: 'object',
+      properties: {
+        fullCode: { type: 'string', description: '12桁のフルコード（バーコード）' }
+      },
+      required: ['fullCode']
+    }
+  },
+  {
+    name: 'listFeatures',
+    description: 'バリエーション一覧を取得する',
+    parameters: {
+      type: 'object',
+      properties: {
+        itemId: { type: 'string', description: '商品ID（省略時は全バリエーション）' }
       },
       required: []
     }
   },
   {
-    name: 'getProduct',
-    description: '商品詳細を取得する',
+    name: 'stockIn',
+    description: '入庫処理（在庫を増やす）',
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: '商品ID' }
+        fullCode: { type: 'string', description: '12桁のフルコード' },
+        quantity: { type: 'number', description: '入庫数量（正の数）' },
+        reason: { type: 'string', description: '理由（任意）' }
       },
-      required: ['id']
+      required: ['fullCode', 'quantity']
     }
   },
   {
-    name: 'getInventory',
-    description: '在庫情報を取得する',
+    name: 'shipment',
+    description: '出荷処理（在庫を減らす）',
     parameters: {
       type: 'object',
       properties: {
-        productId: { type: 'string', description: '商品ID（省略時は全商品）' }
+        fullCode: { type: 'string', description: '12桁のフルコード' },
+        quantity: { type: 'number', description: '出荷数量（正の数）' },
+        reason: { type: 'string', description: '理由（任意）' }
+      },
+      required: ['fullCode', 'quantity']
+    }
+  },
+  {
+    name: 'getQuantity',
+    description: '現在の在庫数を取得する',
+    parameters: {
+      type: 'object',
+      properties: {
+        fullCode: { type: 'string', description: '12桁のフルコード' }
+      },
+      required: ['fullCode']
+    }
+  },
+  {
+    name: 'listQuantityLogs',
+    description: '在庫変動履歴を取得する',
+    parameters: {
+      type: 'object',
+      properties: {
+        fullCode: { type: 'string', description: 'フルコード（省略時は全履歴）' }
       },
       required: []
-    }
-  },
-  {
-    name: 'adjustStock',
-    description: '在庫を調整する',
-    parameters: {
-      type: 'object',
-      properties: {
-        productId: { type: 'string', description: '商品ID' },
-        quantity: { type: 'number', description: '数量（正=入庫、負=出庫）' },
-        reason: { type: 'string', description: '理由' }
-      },
-      required: ['productId', 'quantity']
     }
   },
   {
@@ -91,42 +138,25 @@ const AI_TOOLS: ToolDefinition[] = [
       properties: {},
       required: []
     }
-  },
-  {
-    name: 'searchProducts',
-    description: '商品を検索する',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: '検索キーワード' }
-      },
-      required: ['query']
-    }
   }
 ]
 
 async function executeTool(toolName: string, args: Record<string, unknown>): Promise<unknown> {
   switch (toolName) {
-    case 'listProducts':
-      return args.query ? searchProducts(args.query as string) : getProducts()
-    case 'getProduct': {
-      const products = getProducts()
-      return products.find((p) => p.id === args.id) || null
-    }
-    case 'getInventory':
-      return args.productId
-        ? getInventoryByProductId(args.productId as string)
-        : getInventory()
-    case 'adjustStock': {
-      const qty = args.quantity as number
-      const type = qty >= 0 ? 'in' : 'out'
-      return adjustStock(
-        args.productId as string,
-        qty,
-        type as 'in' | 'out',
-        args.reason as string | undefined
-      )
-    }
+    case 'searchItems':
+      return searchItems(args.query as string)
+    case 'getFeature':
+      return getFeature(args.fullCode as string)
+    case 'listFeatures':
+      return listFeatures(args.itemId as string | undefined)
+    case 'stockIn':
+      return addStockIn(args.fullCode as string, args.quantity as number, args.reason as string | undefined)
+    case 'shipment':
+      return addShipment(args.fullCode as string, args.quantity as number, args.reason as string | undefined)
+    case 'getQuantity':
+      return getFeatureCurrentQuantity(args.fullCode as string)
+    case 'listQuantityLogs':
+      return listQuantityLogs(args.fullCode as string | undefined)
     case 'listOrders':
       return getOrders()
     case 'createSalesOrder':
@@ -137,8 +167,6 @@ async function executeTool(toolName: string, args: Record<string, unknown>): Pro
       })
     case 'getDashboardStats':
       return getDashboardStats()
-    case 'searchProducts':
-      return searchProducts(args.query as string)
     default:
       throw new Error(`Unknown tool: ${toolName}`)
   }
@@ -148,7 +176,7 @@ export function registerAIHandlers(): void {
   ipcMain.handle('ai:chat', async (_event, messages: AIMessage[]) => {
     try {
       const provider = (getSetting('aiProvider') || 'claude') as AIConfig['provider']
-      const apiKey = getSetting(`${provider}ApiKey`) || getSetting(`${provider === 'claude' ? 'claude' : provider}ApiKey`) || ''
+      const apiKey = getSetting(`${provider}ApiKey`) || ''
       const model = getSetting(`${provider}Model`) || ''
 
       if (!apiKey) {

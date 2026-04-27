@@ -222,7 +222,59 @@ export function isTokenValid(): boolean {
 import { ipcMain } from 'electron'
 import { getSetting } from '../database'
 
+export async function loginWithCredentials(
+  serverUrl: string,
+  id: string,
+  password: string
+): Promise<{ success: boolean; user?: { id: string; name: string }; error?: string }> {
+  try {
+    const formData = new URLSearchParams({ id, password })
+    const response = await fetch(`${serverUrl}/index.php?matter=auth&action=login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    })
+    if (!response.ok) {
+      return { success: false, error: `サーバーエラー: ${response.status}` }
+    }
+    const text = await response.text()
+    // Try JSON parse first
+    try {
+      const json = JSON.parse(text) as Record<string, unknown>
+      if (json.success === false || json.error) {
+        return { success: false, error: String(json.error || 'ログインに失敗しました') }
+      }
+      const user = {
+        id: String(json.id || json.user_id || id),
+        name: String(json.name || json.username || id)
+      }
+      return { success: true, user }
+    } catch {
+      // Non-JSON response — treat non-empty as success
+      if (text.trim().length > 0 && !text.includes('error') && !text.includes('Error')) {
+        return { success: true, user: { id, name: id } }
+      }
+      return { success: false, error: 'ログインに失敗しました' }
+    }
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+}
+
 export function registerAuthHandlers(mainWindow: BrowserWindow): void {
+  ipcMain.handle('auth:loginWithCredentials', async (_event, id: string, password: string) => {
+    try {
+      const sasoServerUrl = getSetting('sasoServerUrl') || ''
+      if (!sasoServerUrl) {
+        return { success: false, error: 'SasoサーバーURLが設定されていません' }
+      }
+      const result = await loginWithCredentials(sasoServerUrl, id, password)
+      return result
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
   ipcMain.handle('auth:login', async () => {
     try {
       const authServerUrl = getSetting('authServerUrl') || ''
