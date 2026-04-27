@@ -1,4 +1,5 @@
-import { GoogleGenerativeAI, FunctionDeclarationSchemaType } from '@google/generative-ai'
+import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
+import type { FunctionDeclaration, FunctionDeclarationSchemaProperty } from '@google/generative-ai'
 import type { AIMessage, AIResponse, ToolDefinition, ToolCall } from '../../shared/types'
 import type { AIProvider } from './index'
 
@@ -16,10 +17,14 @@ export class GeminiProvider implements AIProvider {
       model: this.model,
       tools: [
         {
-          functionDeclarations: tools.map((t) => ({
+          functionDeclarations: tools.map((t): FunctionDeclaration => ({
             name: t.name,
             description: t.description,
-            parameters: this.convertParameters(t.parameters)
+            parameters: {
+              type: SchemaType.OBJECT,
+              properties: (t.parameters as { properties?: Record<string, FunctionDeclarationSchemaProperty> }).properties || {},
+              required: (t.parameters as { required?: string[] }).required || []
+            }
           }))
         }
       ],
@@ -27,44 +32,43 @@ export class GeminiProvider implements AIProvider {
     })
 
     // Build history (all except last user message)
-    const history = messages
-      .filter((m) => m.role !== 'system')
-      .slice(0, -1)
-      .map((m) => {
-        if (m.role === 'tool') {
-          return {
-            role: 'function' as const,
-            parts: [
-              {
-                functionResponse: {
-                  name: m.tool_name || 'unknown',
-                  response: { result: m.content }
-                }
-              }
-            ]
-          }
-        }
-        const msg = m as AIMessage & { tool_calls?: ToolCall[] }
-        if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
-          return {
-            role: 'model' as const,
-            parts: msg.tool_calls.map((tc) => ({
-              functionCall: {
-                name: tc.name,
-                args: tc.arguments
-              }
-            }))
-          }
-        }
+    const allMessages = messages.filter((m) => m.role !== 'system')
+    const historyMessages = allMessages.slice(0, -1)
+    const lastMessage = allMessages[allMessages.length - 1]
+
+    const history = historyMessages.map((m) => {
+      const msg = m as AIMessage & { tool_calls?: ToolCall[] }
+      if (m.role === 'tool') {
         return {
-          role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
-          parts: [{ text: m.content }]
+          role: 'function' as const,
+          parts: [
+            {
+              functionResponse: {
+                name: m.tool_name || 'unknown',
+                response: { result: m.content }
+              }
+            }
+          ]
         }
-      })
+      }
+      if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+        return {
+          role: 'model' as const,
+          parts: msg.tool_calls.map((tc) => ({
+            functionCall: {
+              name: tc.name,
+              args: tc.arguments
+            }
+          }))
+        }
+      }
+      return {
+        role: m.role === 'assistant' ? ('model' as const) : ('user' as const),
+        parts: [{ text: m.content }]
+      }
+    })
 
-    const lastMessage = messages.filter((m) => m.role !== 'system').slice(-1)[0]
     const chat = genModel.startChat({ history })
-
     const result = await chat.sendMessage(lastMessage?.content || '')
     const response = result.response
 
@@ -86,10 +90,5 @@ export class GeminiProvider implements AIProvider {
       message: textContent,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined
     }
-  }
-
-  private convertParameters(params: Record<string, unknown>): Record<string, unknown> {
-    if (!params || typeof params !== 'object') return { type: FunctionDeclarationSchemaType.OBJECT, properties: {} }
-    return params as Record<string, unknown>
   }
 }

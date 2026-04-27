@@ -1,6 +1,7 @@
-import { shell, BrowserWindow } from 'electron'
+import { shell, BrowserWindow, app } from 'electron'
 import { createHash, randomBytes } from 'crypto'
-import Store from 'electron-store'
+import { join } from 'path'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 
 interface StoredToken {
   access_token: string
@@ -11,18 +12,34 @@ interface StoredToken {
   expires_at?: string
 }
 
-interface AuthStore {
+interface AuthData {
   token: StoredToken | null
   codeVerifier: string | null
 }
 
-const store = new Store<AuthStore>({
-  name: 'auth',
-  defaults: {
-    token: null,
-    codeVerifier: null
+function getAuthFilePath(): string {
+  return join(app.getPath('userData'), 'auth.json')
+}
+
+function readAuthData(): AuthData {
+  try {
+    const path = getAuthFilePath()
+    if (existsSync(path)) {
+      return JSON.parse(readFileSync(path, 'utf-8')) as AuthData
+    }
+  } catch {
+    // ignore
   }
-})
+  return { token: null, codeVerifier: null }
+}
+
+function writeAuthData(data: AuthData): void {
+  try {
+    writeFileSync(getAuthFilePath(), JSON.stringify(data, null, 2), 'utf-8')
+  } catch {
+    // ignore
+  }
+}
 
 function base64UrlEncode(buffer: Buffer): string {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
@@ -41,7 +58,9 @@ export function startLogin(authServerUrl: string, clientId: string): void {
   const verifier = generateCodeVerifier()
   const challenge = generateCodeChallenge(verifier)
 
-  store.set('codeVerifier', verifier)
+  const data = readAuthData()
+  data.codeVerifier = verifier
+  writeAuthData(data)
 
   const params = new URLSearchParams({
     response_type: 'code',
@@ -74,14 +93,17 @@ export async function handleCallback(
       return { success: false, error: '認証コードが見つかりません' }
     }
 
-    const verifier = store.get('codeVerifier')
+    const authData = readAuthData()
+    const verifier = authData.codeVerifier
     if (!verifier) {
       return { success: false, error: 'コードベリファイアが見つかりません' }
     }
 
     const token = await exchangeCodeForToken(authServerUrl, clientId, code, verifier)
     saveToken(token)
-    store.set('codeVerifier', null)
+    const updated = readAuthData()
+    updated.codeVerifier = null
+    writeAuthData(updated)
 
     return { success: true }
   } catch (err) {
@@ -120,16 +142,17 @@ async function exchangeCodeForToken(
 }
 
 export function saveToken(token: StoredToken): void {
-  store.set('token', token)
+  const data = readAuthData()
+  data.token = token
+  writeAuthData(data)
 }
 
 export function getToken(): StoredToken | null {
-  return store.get('token')
+  return readAuthData().token
 }
 
 export function clearToken(): void {
-  store.set('token', null)
-  store.set('codeVerifier', null)
+  writeAuthData({ token: null, codeVerifier: null })
 }
 
 export function getUser(): { id: string; name: string; email: string; token: string; expiresAt: string } | null {
@@ -141,11 +164,11 @@ export function getUser(): { id: string; name: string; email: string; token: str
     try {
       const parts = token.id_token.split('.')
       if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'))
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8')) as Record<string, unknown>
         return {
-          id: payload.sub || '',
-          name: payload.name || payload.preferred_username || '',
-          email: payload.email || '',
+          id: (payload.sub as string) || '',
+          name: (payload.name as string) || (payload.preferred_username as string) || '',
+          email: (payload.email as string) || '',
           token: token.access_token,
           expiresAt: token.expires_at || ''
         }
@@ -159,11 +182,11 @@ export function getUser(): { id: string; name: string; email: string; token: str
   try {
     const parts = token.access_token.split('.')
     if (parts.length === 3) {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'))
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8')) as Record<string, unknown>
       return {
-        id: payload.sub || 'user',
-        name: payload.name || payload.preferred_username || 'ユーザー',
-        email: payload.email || '',
+        id: (payload.sub as string) || 'user',
+        name: (payload.name as string) || (payload.preferred_username as string) || 'ユーザー',
+        email: (payload.email as string) || '',
         token: token.access_token,
         expiresAt: token.expires_at || ''
       }

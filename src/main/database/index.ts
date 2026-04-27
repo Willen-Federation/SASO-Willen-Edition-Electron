@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import Database, { type Database as DatabaseType } from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
@@ -13,7 +13,7 @@ import type {
 } from '../../shared/types'
 
 const dbPath = join(app.getPath('userData'), 'saso.db')
-export const db = new Database(dbPath)
+export const db: DatabaseType = new Database(dbPath)
 
 db.pragma('journal_mode = WAL')
 db.pragma('foreign_keys = ON')

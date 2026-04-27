@@ -29,12 +29,12 @@ export class ClaudeProvider implements AIProvider {
         }
         const msg = m as AIMessage & { tool_calls?: ToolCall[] }
         if (msg.tool_calls && msg.tool_calls.length > 0) {
-          const content: Anthropic.ContentBlock[] = []
+          const content: Anthropic.MessageParam['content'] = []
           if (m.content) {
-            content.push({ type: 'text', text: m.content })
+            (content as Array<{ type: string; text: string }>).push({ type: 'text', text: m.content })
           }
           for (const tc of msg.tool_calls) {
-            content.push({
+            (content as Array<{ type: string; id: string; name: string; input: unknown }>).push({
               type: 'tool_use',
               id: tc.name,
               name: tc.name,
