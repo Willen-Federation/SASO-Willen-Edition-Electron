@@ -52,10 +52,14 @@ const api = {
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getToken: () => ipcRenderer.invoke('auth:getToken'),
     onAuthCallback: (callback: (user: unknown) => void) => {
-      ipcRenderer.on('auth:stateChanged', (_event, user) => callback(user))
+      const listener = (_event: Electron.IpcRendererEvent, user: unknown) => callback(user)
+      ipcRenderer.on('auth:stateChanged', listener)
+      return () => ipcRenderer.removeListener('auth:stateChanged', listener)
     },
     onAuthError: (callback: (error: string) => void) => {
-      ipcRenderer.on('auth:error', (_event, error) => callback(error))
+      const listener = (_event: Electron.IpcRendererEvent, error: string) => callback(error)
+      ipcRenderer.on('auth:error', listener)
+      return () => ipcRenderer.removeListener('auth:error', listener)
     }
   },
   labels: {

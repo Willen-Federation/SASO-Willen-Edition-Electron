@@ -29,7 +29,12 @@ function SecretInput({ value, onChange, placeholder }: { value: string; onChange
         placeholder={placeholder}
         className="input-field pr-10"
       />
-      <button type="button" onClick={() => setShow(!show)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+      <button
+        type="button"
+        onClick={() => setShow(!show)}
+        aria-label={show ? 'APIキーを非表示' : 'APIキーを表示'}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+      >
         {show ? <EyeOff size={16} /> : <Eye size={16} />}
       </button>
     </div>

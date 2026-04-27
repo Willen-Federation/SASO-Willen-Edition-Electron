@@ -38,7 +38,10 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   login: async () => {
-    await window.api.auth.login()
+    const result = await window.api.auth.login()
+    if (!result.success) {
+      throw new Error(result.error || 'ログインに失敗しました')
+    }
   },
 
   logout: async () => {

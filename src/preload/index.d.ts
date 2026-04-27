@@ -68,8 +68,8 @@ declare global {
         logout: () => Promise<IpcResponse<void>>
         getUser: () => Promise<IpcResponse<AuthUser | null>>
         getToken: () => Promise<IpcResponse<string | null>>
-        onAuthCallback: (callback: (user: AuthUser | null) => void) => void
-        onAuthError: (callback: (error: string) => void) => void
+        onAuthCallback: (callback: (user: AuthUser | null) => void) => () => void
+        onAuthError: (callback: (error: string) => void) => () => void
       }
       labels: {
         print: (options?: { printerName?: string; silent?: boolean }) => Promise<IpcResponse<void>>

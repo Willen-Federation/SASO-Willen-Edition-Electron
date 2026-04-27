@@ -50,7 +50,8 @@ export default function Inventory() {
   const handleAdjust = async () => {
     if (!selectedItem) return
     const qty = parseFloat(adjustQty)
-    if (!qty || qty <= 0) { setError('数量を入力してください'); return }
+    if (isNaN(qty) || qty === 0) { setError('数量を入力してください'); return }
+    if (adjustType !== 'adjustment' && qty < 0) { setError('正の数量を入力してください'); return }
     setSaving(true)
     setError(null)
     let result = null

@@ -24,10 +24,10 @@ export default function App() {
 
   useEffect(() => {
     checkAuth()
-    // Listen for OAuth callback
-    window.api.auth.onAuthCallback((user) => {
+    const unsubCallback = window.api.auth.onAuthCallback((user) => {
       if (user) checkAuth()
     })
+    return () => unsubCallback()
   }, [])
 
   return (

@@ -26,7 +26,7 @@ export class OpenAIProvider implements AIProvider {
           role: 'assistant' as const,
           content: m.content || null,
           tool_calls: msg.tool_calls.map((tc) => ({
-            id: tc.name,
+            id: tc.id,
             type: 'function' as const,
             function: {
               name: tc.name,
@@ -63,6 +63,7 @@ export class OpenAIProvider implements AIProvider {
     if (choice.message.tool_calls) {
       for (const tc of choice.message.tool_calls) {
         toolCalls.push({
+          id: tc.id,
           name: tc.function.name,
           arguments: JSON.parse(tc.function.arguments) as Record<string, unknown>
         })

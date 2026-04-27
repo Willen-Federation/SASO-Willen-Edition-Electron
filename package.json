@@ -11,7 +11,7 @@
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc -b tsconfig.json && tsc --noEmit -p tsconfig.web.json"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.37.0",

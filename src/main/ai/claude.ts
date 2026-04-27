@@ -21,7 +21,7 @@ export class ClaudeProvider implements AIProvider {
             content: [
               {
                 type: 'tool_result' as const,
-                tool_use_id: m.tool_call_id || m.tool_name || 'unknown',
+                tool_use_id: m.tool_call_id || 'unknown',
                 content: m.content
               }
             ]
@@ -36,7 +36,7 @@ export class ClaudeProvider implements AIProvider {
           for (const tc of msg.tool_calls) {
             (content as Array<{ type: string; id: string; name: string; input: unknown }>).push({
               type: 'tool_use',
-              id: tc.name,
+              id: tc.id,
               name: tc.name,
               input: tc.arguments
             })
@@ -77,6 +77,7 @@ export class ClaudeProvider implements AIProvider {
         textContent += block.text
       } else if (block.type === 'tool_use') {
         toolCalls.push({
+          id: block.id,
           name: block.name,
           arguments: block.input as Record<string, unknown>
         })

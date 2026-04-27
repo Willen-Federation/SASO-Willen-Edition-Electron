@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plus, Search, Edit2, Trash2, Package, Barcode } from 'lucide-react'
 import { useProducts } from '../stores/useProducts'
 import Modal from '../components/Modal'
@@ -35,6 +35,7 @@ export default function Products() {
   const [form, setForm] = useState<ProductFormData>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     loadProducts()
@@ -218,6 +219,7 @@ export default function Products() {
               <label className="block text-sm font-medium text-gray-700 mb-1">バーコード</label>
               <div className="flex gap-2">
                 <input
+                  ref={barcodeInputRef}
                   type="text"
                   value={form.barcode}
                   onChange={(e) => setForm({ ...form, barcode: e.target.value })}
@@ -227,7 +229,8 @@ export default function Products() {
                 <button
                   type="button"
                   className="btn-secondary flex items-center gap-1.5 px-3"
-                  onClick={() => {}}
+                  aria-label="バーコード入力欄にフォーカス"
+                  onClick={() => barcodeInputRef.current?.focus()}
                 >
                   <Barcode size={16} />
                 </button>

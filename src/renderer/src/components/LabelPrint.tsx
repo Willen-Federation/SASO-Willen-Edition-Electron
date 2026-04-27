@@ -135,14 +135,6 @@ export default function LabelPrint({ items, labelSize = '58mm' }: LabelPrintProp
         </div>
       </div>
 
-      {/* Hidden canvases for barcode generation - also rendered for screen */}
-      <div style={{ position: 'absolute', left: -9999 }}>
-        {allLabels.map((label, i) => (
-          label.product.barcode ? (
-            <canvas key={i} id={label.barcodeId} />
-          ) : null
-        ))}
-      </div>
     </div>
   )
 }

@@ -3,6 +3,13 @@ import { createHash, randomBytes } from 'crypto'
 import { join } from 'path'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 
+function decodeBase64Url(str: string): string {
+  // Convert base64url to base64, then decode
+  const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+  return Buffer.from(padded, 'base64').toString('utf-8')
+}
+
 interface StoredToken {
   access_token: string
   token_type: string
@@ -164,7 +171,7 @@ export function getUser(): { id: string; name: string; email: string; token: str
     try {
       const parts = token.id_token.split('.')
       if (parts.length === 3) {
-        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8')) as Record<string, unknown>
+        const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<string, unknown>
         return {
           id: (payload.sub as string) || '',
           name: (payload.name as string) || (payload.preferred_username as string) || '',
@@ -182,7 +189,7 @@ export function getUser(): { id: string; name: string; email: string; token: str
   try {
     const parts = token.access_token.split('.')
     if (parts.length === 3) {
-      const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8')) as Record<string, unknown>
+      const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<string, unknown>
       return {
         id: (payload.sub as string) || 'user',
         name: (payload.name as string) || (payload.preferred_username as string) || 'ユーザー',

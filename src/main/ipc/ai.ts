@@ -183,7 +183,7 @@ export function registerAIHandlers(): void {
           ...response.toolCalls.map((tc) => ({
             role: 'tool' as const,
             content: JSON.stringify(tc.result),
-            tool_call_id: tc.name,
+            tool_call_id: tc.id,
             tool_name: tc.name
           }))
         ]

@@ -3,10 +3,10 @@ import { ipcMain, BrowserWindow, webContents } from 'electron'
 export function registerLabelHandlers(): void {
   ipcMain.handle('labels:getPrinters', async (_event) => {
     try {
-      const win = BrowserWindow.fromWebContents(
-        webContents.getAllWebContents().find((wc) => wc.getType() === 'window') ||
-          webContents.getAllWebContents()[0]
-      )
+      const allWc = webContents.getAllWebContents()
+      const wc = allWc.find((w) => w.getType() === 'window') || allWc[0]
+      if (!wc) return { success: true, data: [] }
+      const win = BrowserWindow.fromWebContents(wc)
       if (!win) return { success: true, data: [] }
       const printers = await win.webContents.getPrintersAsync()
       return { success: true, data: printers }

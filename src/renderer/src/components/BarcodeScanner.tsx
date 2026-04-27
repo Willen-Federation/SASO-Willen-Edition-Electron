@@ -26,7 +26,15 @@ export default function BarcodeScanner({
   // USBスキャナーからの高速キー入力を検知
   const handleGlobalKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (document.activeElement === inputRef.current) return
+      const active = document.activeElement
+      // Ignore when any text input, textarea, select, or contenteditable has focus
+      if (active === inputRef.current) return
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) return
       const now = Date.now()
       const timeDiff = now - lastKeyTime.current
       lastKeyTime.current = now

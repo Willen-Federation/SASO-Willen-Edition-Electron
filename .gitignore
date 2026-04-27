@@ -10,3 +10,4 @@ dist-electron/
 !.env.example
 build/
 release/
+*.tsbuildinfo

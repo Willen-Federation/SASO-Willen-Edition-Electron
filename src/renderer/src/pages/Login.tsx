@@ -35,11 +35,11 @@ export default function Login() {
     setLoading(true)
     setError(null)
     try {
-      const result = await login()
+      await login()
       setWaitingForCallback(true)
-      setLoading(false)
     } catch (e) {
       setError((e as Error).message)
+    } finally {
       setLoading(false)
     }
   }

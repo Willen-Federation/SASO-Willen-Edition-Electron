@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai'
 import type { FunctionDeclaration, FunctionDeclarationSchemaProperty } from '@google/generative-ai'
+import { randomUUID } from 'crypto'
 import type { AIMessage, AIResponse, ToolDefinition, ToolCall } from '../../shared/types'
 import type { AIProvider } from './index'
 
@@ -80,6 +81,7 @@ export class GeminiProvider implements AIProvider {
         textContent += part.text
       } else if ('functionCall' in part && part.functionCall) {
         toolCalls.push({
+          id: randomUUID(),
           name: part.functionCall.name,
           arguments: part.functionCall.args as Record<string, unknown>
         })
