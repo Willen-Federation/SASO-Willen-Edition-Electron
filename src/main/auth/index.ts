@@ -150,6 +150,48 @@ async function startPairing(
   }
 }
 
+// Manual pairing path. Accepts either the full QR payload
+// `SASO1:{token}|{server_url}` (preferred — carries the issuing host so we
+// always exchange against the right origin) or the bare token segment.
+function parsePairingPayload(
+  payload: string,
+  fallbackServerUrl: string
+): { token: string; serverUrl: string } | { error: string } {
+  const trimmed = payload.trim()
+  if (!trimmed) return { error: 'ペアリングコードを入力してください' }
+
+  if (trimmed.startsWith('SASO1:')) {
+    const body = trimmed.slice('SASO1:'.length)
+    const [token, server] = body.split('|', 2)
+    if (!token) return { error: 'トークンが空です' }
+    const serverUrl = (server && /^https?:\/\//.test(server)) ? server : fallbackServerUrl
+    if (!serverUrl) return { error: 'サーバーURLが取得できませんでした' }
+    return { token, serverUrl }
+  }
+
+  if (!fallbackServerUrl) {
+    return { error: 'サーバーURLが設定されていないため、トークンのみのペアリングはできません' }
+  }
+  return { token: trimmed, serverUrl: fallbackServerUrl }
+}
+
+async function startManualPairing(
+  payload: string,
+  fallbackServerUrl: string,
+  deviceName: string
+): Promise<{ success: boolean; error?: string }> {
+  const parsed = parsePairingPayload(payload, fallbackServerUrl)
+  if ('error' in parsed) return { success: false, error: parsed.error }
+
+  try {
+    const jwt = await exchangePairingForJwt(parsed.serverUrl, parsed.token, deviceName)
+    saveToken(jwt)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  }
+}
+
 export function getUser(): {
   id: string
   name: string
@@ -199,6 +241,20 @@ export function registerAuthHandlers(mainWindow: BrowserWindow): void {
       const sasoServerUrl = getSetting('sasoServerUrl') || ''
       const deviceName = `${app.getName()} (${require('os').hostname()})`
       const result = await startPairing(sasoServerUrl, deviceName)
+      if (result.success) {
+        mainWindow.webContents.send('auth:stateChanged', getUser())
+      }
+      return result
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('auth:pairWithToken', async (_event, payload: string) => {
+    try {
+      const sasoServerUrl = getSetting('sasoServerUrl') || ''
+      const deviceName = `${app.getName()} (${require('os').hostname()})`
+      const result = await startManualPairing(payload, sasoServerUrl, deviceName)
       if (result.success) {
         mainWindow.webContents.send('auth:stateChanged', getUser())
       }
