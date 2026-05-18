@@ -78,9 +78,7 @@ const api = {
     chat: (messages: unknown[]) => ipcRenderer.invoke('ai:chat', messages)
   },
   auth: {
-    login: () => ipcRenderer.invoke('auth:login'),
-    loginWithCredentials: (id: string, password: string) =>
-      ipcRenderer.invoke('auth:loginWithCredentials', id, password),
+    pair: () => ipcRenderer.invoke('auth:pair'),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getToken: () => ipcRenderer.invoke('auth:getToken'),
@@ -88,12 +86,34 @@ const api = {
       const listener = (_event: Electron.IpcRendererEvent, user: unknown) => callback(user)
       ipcRenderer.on('auth:stateChanged', listener)
       return () => ipcRenderer.removeListener('auth:stateChanged', listener)
-    },
-    onAuthError: (callback: (error: string) => void) => {
-      const listener = (_event: Electron.IpcRendererEvent, error: string) => callback(error)
-      ipcRenderer.on('auth:error', listener)
-      return () => ipcRenderer.removeListener('auth:error', listener)
     }
+  },
+  sync: {
+    health: () => ipcRenderer.invoke('sync:health'),
+    itemsList: (
+      query?: {
+        q?: string
+        category_id?: string | number
+        barcode?: string
+        isbn?: string
+        label_code?: string
+        cursor?: number
+        limit?: number
+      }
+    ) => ipcRenderer.invoke('sync:items:list', query),
+    itemsGet: (id: string | number) => ipcRenderer.invoke('sync:items:get', id),
+    itemsCreate: (data: unknown, idempotencyKey?: string) =>
+      ipcRenderer.invoke('sync:items:create', data, idempotencyKey),
+    itemsUpdate: (id: string | number, data: unknown, idempotencyKey?: string) =>
+      ipcRenderer.invoke('sync:items:update', id, data, idempotencyKey),
+    categoriesList: (format?: 'flat' | 'tree') =>
+      ipcRenderer.invoke('sync:categories:list', format),
+    storageLocationsList: () => ipcRenderer.invoke('sync:storage-locations:list'),
+    storageLocationsGet: (id: string | number) =>
+      ipcRenderer.invoke('sync:storage-locations:get', id),
+    storageLocationsItems: (id: string | number) =>
+      ipcRenderer.invoke('sync:storage-locations:items', id),
+    barcodeGet: (code: string) => ipcRenderer.invoke('sync:barcode:get', code)
   },
   labels: {
     print: (options?: unknown) => ipcRenderer.invoke('labels:print', options),

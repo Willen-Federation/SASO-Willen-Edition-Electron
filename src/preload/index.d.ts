@@ -97,13 +97,33 @@ declare global {
         chat: (messages: AIMessage[]) => Promise<IpcResponse<{ message: string; toolCalls?: unknown[] }>>
       }
       auth: {
-        login: () => Promise<IpcResponse<void>>
-        loginWithCredentials: (id: string, password: string) => Promise<{ success: boolean; user?: { id: string; name: string }; error?: string }>
+        pair: () => Promise<{ success: boolean; error?: string }>
         logout: () => Promise<IpcResponse<void>>
         getUser: () => Promise<IpcResponse<AuthUser | null>>
         getToken: () => Promise<IpcResponse<string | null>>
         onAuthCallback: (callback: (user: AuthUser | null) => void) => () => void
-        onAuthError: (callback: (error: string) => void) => () => void
+      }
+      sync: {
+        health: () => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        itemsList: (
+          query?: {
+            q?: string
+            category_id?: string | number
+            barcode?: string
+            isbn?: string
+            label_code?: string
+            cursor?: number
+            limit?: number
+          }
+        ) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        itemsGet: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        itemsCreate: (data: unknown, idempotencyKey?: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        itemsUpdate: (id: string | number, data: unknown, idempotencyKey?: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        categoriesList: (format?: 'flat' | 'tree') => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        storageLocationsList: () => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        storageLocationsGet: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        storageLocationsItems: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        barcodeGet: (code: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
       }
       labels: {
         print: (options?: { printerName?: string; silent?: boolean }) => Promise<IpcResponse<void>>

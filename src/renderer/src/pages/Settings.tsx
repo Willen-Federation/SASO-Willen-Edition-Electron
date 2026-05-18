@@ -11,8 +11,6 @@ interface Settings {
   openaiModel: string
   geminiApiKey: string
   geminiModel: string
-  authServerUrl: string
-  authClientId: string
   sasoServerUrl: string
   taxRate: string
   currency: string
@@ -42,6 +40,57 @@ function SecretInput({ value, onChange, placeholder }: { value: string; onChange
   )
 }
 
+function TestConnectionRow() {
+  const [status, setStatus] = useState<'idle' | 'ok' | 'err'>('idle')
+  const [detail, setDetail] = useState<string>('')
+  const [running, setRunning] = useState(false)
+  const handle = async () => {
+    setRunning(true)
+    const res = await window.api.sync.health()
+    setRunning(false)
+    if (res.success) {
+      setStatus('ok')
+      setDetail(JSON.stringify(res.data))
+    } else {
+      setStatus('err')
+      setDetail(res.error || 'unknown error')
+    }
+  }
+  return (
+    <div className="border-t border-gray-100 pt-4">
+      <button onClick={handle} disabled={running} className="btn-secondary text-sm disabled:opacity-50">
+        {running ? 'チェック中…' : '接続テスト (/api/v1/health)'}
+      </button>
+      {status === 'ok' && <p className="text-xs text-green-600 mt-2 font-mono break-all">{detail}</p>}
+      {status === 'err' && <p className="text-xs text-red-600 mt-2 font-mono break-all">{detail}</p>}
+    </div>
+  )
+}
+
+function PairingStatusRow() {
+  const [user, setUser] = useState<{ name: string; expiresAt: string; deviceName?: string } | null>(null)
+  useEffect(() => {
+    window.api.auth.getUser().then((r) => {
+      if (r.success && r.data) {
+        setUser(r.data as { name: string; expiresAt: string; deviceName?: string })
+      }
+    })
+  }, [])
+  return (
+    <div className="border-t border-gray-100 pt-4">
+      <p className="text-sm font-medium text-gray-700 mb-2">ペアリング状態</p>
+      {user ? (
+        <div className="text-sm text-gray-600">
+          <p>デバイス名: <span className="font-mono">{user.deviceName || user.name}</span></p>
+          <p>JWT 有効期限: <span className="font-mono">{user.expiresAt}</span></p>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-500">未ペアリング</p>
+      )}
+    </div>
+  )
+}
+
 export default function Settings() {
   const [tab, setTab] = useState<Tab>('ai')
   const [settings, setSettings] = useState<Settings>({
@@ -52,9 +101,7 @@ export default function Settings() {
     openaiModel: 'gpt-4o',
     geminiApiKey: '',
     geminiModel: 'gemini-1.5-pro',
-    authServerUrl: '',
-    authClientId: '',
-    sasoServerUrl: '',
+    sasoServerUrl: 'https://saso.sksl.jp',
     taxRate: '10',
     currency: 'JPY',
     defaultLabelSize: '58mm'
@@ -195,53 +242,26 @@ export default function Settings() {
         {tab === 'auth' && (
           <div className="space-y-4">
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
-              <p className="font-medium mb-1">認証設定</p>
-              <p>SasoサーバーURLを設定するとID・パスワードでログインできます。未設定の場合はOAuth PKCEフローを使用します。</p>
+              <p className="font-medium mb-1">SASO ペアリング</p>
+              <p>
+                サーバー URL を指定し「このデバイスをペアリング」でブラウザ経由の OAuth ペアリングを行います。
+              </p>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">SasoサーバーURL</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">SASO サーバー URL</label>
               <input
                 type="url"
                 value={settings.sasoServerUrl}
                 onChange={(e) => set('sasoServerUrl', e.target.value)}
-                placeholder="https://saso.example.com"
+                placeholder="https://saso.sksl.jp"
                 className="input-field"
               />
-              <p className="text-xs text-gray-400 mt-1">SASO PHPバックエンドのURL（末尾スラッシュ不要）</p>
+              <p className="text-xs text-gray-400 mt-1">SASO バックエンドの URL(末尾スラッシュ不要)。既定値は https://saso.sksl.jp。</p>
             </div>
 
-            <div className="border-t border-gray-100 pt-4">
-              <p className="text-sm text-gray-500 mb-3">OAuth 2.0 PKCE フロー設定（SasoサーバーURL未設定時に使用）</p>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">認証サーバーURL</label>
-                  <input
-                    type="url"
-                    value={settings.authServerUrl}
-                    onChange={(e) => set('authServerUrl', e.target.value)}
-                    placeholder="https://auth.example.com"
-                    className="input-field"
-                  />
-                  <p className="text-xs text-gray-400 mt-1">例: https://your-auth-server.com（末尾スラッシュ不要）</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">クライアントID</label>
-                  <input
-                    type="text"
-                    value={settings.authClientId}
-                    onChange={(e) => set('authClientId', e.target.value)}
-                    placeholder="your-client-id"
-                    className="input-field"
-                  />
-                </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
-                  <p className="font-medium mb-1">リダイレクトURI設定</p>
-                  <p>認証サーバーに以下のリダイレクトURIを登録してください:</p>
-                  <code className="block mt-1 font-mono bg-white px-2 py-1 rounded border border-gray-200">saso://auth/callback</code>
-                </div>
-              </div>
-            </div>
+            <TestConnectionRow />
+            <PairingStatusRow />
           </div>
         )}
 

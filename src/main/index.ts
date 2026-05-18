@@ -1,13 +1,34 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllHandlers } from './ipc'
-import { registerAuthHandlers, handleCallback, getUser } from './auth'
-import { getSetting } from './database'
+import { registerAuthHandlers } from './auth'
 
 let mainWindow: BrowserWindow | null = null
 
+function resolveIconPath(): string | undefined {
+  const candidates = [
+    join(__dirname, '../../build/icon.png'),
+    join(__dirname, '../../resources/icon.png'),
+    join(process.resourcesPath || '', 'icon.png')
+  ]
+  // electron-builder is expected to ship build/icon.png; in dev the path
+  // resolves to the repo's build/ folder. If none exist we let Electron use
+  // the default icon rather than crash.
+  for (const candidate of candidates) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { existsSync } = require('fs')
+      if (existsSync(candidate)) return candidate
+    } catch {
+      // ignore
+    }
+  }
+  return undefined
+}
+
 function createWindow(): BrowserWindow {
+  const icon = resolveIconPath()
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
@@ -16,6 +37,7 @@ function createWindow(): BrowserWindow {
     show: false,
     autoHideMenuBar: true,
     title: 'SASO Willen Edition',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
@@ -42,47 +64,12 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-// Handle OAuth protocol callback (macOS/Linux)
-app.on('open-url', async (event, url) => {
-  event.preventDefault()
-  if (url.startsWith('saso://auth/callback')) {
-    const authServerUrl = getSetting('authServerUrl') || ''
-    const clientId = getSetting('authClientId') || ''
-    const result = await handleCallback(url, authServerUrl, clientId)
-    if (mainWindow) {
-      if (result.success) {
-        const user = getUser()
-        mainWindow.webContents.send('auth:stateChanged', user)
-      } else {
-        mainWindow.webContents.send('auth:error', result.error)
-      }
-    }
-  }
-})
-
-// Handle OAuth protocol callback (Windows - second-instance)
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 } else {
-  app.on('second-instance', async (_event, commandLine) => {
-    // Windows passes the protocol URL in commandLine
-    const url = commandLine.find((arg) => arg.startsWith('saso://'))
-    if (url && url.startsWith('saso://auth/callback')) {
-      const authServerUrl = getSetting('authServerUrl') || ''
-      const clientId = getSetting('authClientId') || ''
-      const result = await handleCallback(url, authServerUrl, clientId)
-      if (mainWindow) {
-        mainWindow.show()
-        mainWindow.focus()
-        if (result.success) {
-          const user = getUser()
-          mainWindow.webContents.send('auth:stateChanged', user)
-        } else {
-          mainWindow.webContents.send('auth:error', result.error)
-        }
-      }
-    } else if (mainWindow) {
+  app.on('second-instance', () => {
+    if (mainWindow) {
       mainWindow.show()
       mainWindow.focus()
     }
@@ -92,16 +79,12 @@ if (!gotTheLock) {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('com.willen-federation.saso')
 
-  // Register 'saso' protocol
-  app.setAsDefaultProtocolClient('saso')
-
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
   const win = createWindow()
 
-  // Register all IPC handlers
   registerAllHandlers()
   registerAuthHandlers(win)
 

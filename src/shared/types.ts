@@ -151,8 +151,6 @@ export interface AppSettings {
   taxRate: number
   currency: string
   language: string
-  authServerUrl: string
-  authClientId: string
   sasoServerUrl: string
   aiProvider: 'claude' | 'openai' | 'gemini'
   claudeApiKey: string
