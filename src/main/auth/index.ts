@@ -5,6 +5,11 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { awaitPairingCallback } from './loopback'
 import { getSetting } from '../database'
+import type {
+  AuthProviderSummary,
+  AuthProviderType,
+  ServerAuthDiscovery
+} from '../../shared/types'
 
 function decodeBase64Url(str: string): string {
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
@@ -66,39 +71,41 @@ function normalizeServerUrl(raw: string): string {
 // Server discovery — GET /api/v1/auth/providers
 // ---------------------------------------------------------------------------
 
-export type AuthProviderType =
-  | 'local'
-  | 'oidc'
-  | 'saml'
-  | 'firebase'
-  | 'auth0'
-  | 'cognito'
-  | 'unknown'
-
-export interface AuthProviderSummary {
-  id: number
-  name: string
-  type: AuthProviderType
-  isDefault: boolean
-  enabled: boolean
-}
-
-export interface ServerAuthDiscovery {
-  serverName: string
-  version: string
-  mobileSetupUrl: string
-  authStrategy: 'local-only' | 'default-only' | 'user-choice'
-  providers: AuthProviderSummary[]
-}
-
+/// Used when discovery has not yet run or failed.
+///
+/// The provider list is intentionally empty: the renderer's `Login.tsx`
+/// treats `localProvider?.id` as `undefined` and passes nothing to
+/// `auth.pair`, so `startPairing` omits the `provider_id` query
+/// parameter and lets the server pick its default provider. Returning a
+/// fake `id: 0` here would otherwise forward `provider_id=0` to /m/setup
+/// and 400 on every server (DB ids start at 1).
 const LOCAL_ONLY_FALLBACK: ServerAuthDiscovery = {
   serverName: '',
   version: '',
   mobileSetupUrl: '',
   authStrategy: 'local-only',
-  providers: [
-    { id: 0, name: 'Local', type: 'local', isDefault: true, enabled: true }
-  ]
+  providers: []
+}
+
+/// Generous-but-bounded timeout for the two public endpoints we hit
+/// before the user is authenticated. Long enough for a sluggish
+/// reverse-proxy / cold PHP-FPM worker, short enough that a firewalled
+/// host or wrong port doesn't leave the "接続中…" spinner hanging
+/// forever.
+const PUBLIC_FETCH_TIMEOUT_MS = 10_000
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = PUBLIC_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function coerceProviderType(raw: unknown): AuthProviderType {
@@ -119,7 +126,7 @@ async function discoverProviders(sasoServerUrl: string): Promise<ServerAuthDisco
   if (!sasoServerUrl) return LOCAL_ONLY_FALLBACK
   try {
     const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/providers`
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: { Accept: 'application/json' }
     })
     if (!response.ok) return LOCAL_ONLY_FALLBACK
@@ -305,7 +312,7 @@ async function testServerUrl(
   }
   try {
     const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/health`
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       headers: { Accept: 'application/json' }
     })
     return {
@@ -314,7 +321,11 @@ async function testServerUrl(
       error: response.ok ? undefined : `HTTP ${response.status}`
     }
   } catch (err) {
-    return { success: false, error: (err as Error).message }
+    const message =
+      (err as Error).name === 'AbortError'
+        ? `タイムアウト (${PUBLIC_FETCH_TIMEOUT_MS / 1000}秒)`
+        : (err as Error).message
+    return { success: false, error: message }
   }
 }
 

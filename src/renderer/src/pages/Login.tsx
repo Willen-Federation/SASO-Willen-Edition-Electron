@@ -10,6 +10,7 @@ import {
   Flame,
   ExternalLink
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import type { AuthProviderSummary, ServerAuthDiscovery } from '@shared/types'
 import { useAuth } from '../stores/useAuth'
 
@@ -306,7 +307,7 @@ function ProviderButton({
   )
 }
 
-function providerIcon(type: AuthProviderSummary['type']): typeof Cloud {
+function providerIcon(type: AuthProviderSummary['type']): LucideIcon {
   switch (type) {
     case 'firebase':
       return Flame
