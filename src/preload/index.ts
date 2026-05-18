@@ -79,6 +79,7 @@ const api = {
   },
   auth: {
     pair: () => ipcRenderer.invoke('auth:pair'),
+    pairWithToken: (payload: string) => ipcRenderer.invoke('auth:pairWithToken', payload),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getToken: () => ipcRenderer.invoke('auth:getToken'),

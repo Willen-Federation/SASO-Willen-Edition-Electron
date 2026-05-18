@@ -98,6 +98,7 @@ declare global {
       }
       auth: {
         pair: () => Promise<{ success: boolean; error?: string }>
+        pairWithToken: (payload: string) => Promise<{ success: boolean; error?: string }>
         logout: () => Promise<IpcResponse<void>>
         getUser: () => Promise<IpcResponse<AuthUser | null>>
         getToken: () => Promise<IpcResponse<string | null>>
