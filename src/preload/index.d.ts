@@ -12,6 +12,7 @@ import type {
   DashboardStats,
   AIMessage,
   AuthUser,
+  ServerAuthDiscovery,
   IpcResponse
 } from '../shared/types'
 
@@ -97,7 +98,9 @@ declare global {
         chat: (messages: AIMessage[]) => Promise<IpcResponse<{ message: string; toolCalls?: unknown[] }>>
       }
       auth: {
-        pair: () => Promise<{ success: boolean; error?: string }>
+        discoverProviders: () => Promise<IpcResponse<ServerAuthDiscovery>>
+        testServerUrl: (url: string) => Promise<{ success: boolean; error?: string; status?: number }>
+        pair: (providerId?: number) => Promise<{ success: boolean; error?: string }>
         pairWithToken: (payload: string) => Promise<{ success: boolean; error?: string }>
         logout: () => Promise<IpcResponse<void>>
         getUser: () => Promise<IpcResponse<AuthUser | null>>

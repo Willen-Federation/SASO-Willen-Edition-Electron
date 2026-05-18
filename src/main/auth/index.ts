@@ -5,6 +5,11 @@ import { app } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { awaitPairingCallback } from './loopback'
 import { getSetting } from '../database'
+import type {
+  AuthProviderSummary,
+  AuthProviderType,
+  ServerAuthDiscovery
+} from '../../shared/types'
 
 function decodeBase64Url(str: string): string {
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
@@ -62,6 +67,100 @@ function normalizeServerUrl(raw: string): string {
   return raw.replace(/\/+$/, '')
 }
 
+// ---------------------------------------------------------------------------
+// Server discovery — GET /api/v1/auth/providers
+// ---------------------------------------------------------------------------
+
+/// Used when discovery has not yet run or failed.
+///
+/// The provider list is intentionally empty: the renderer's `Login.tsx`
+/// treats `localProvider?.id` as `undefined` and passes nothing to
+/// `auth.pair`, so `startPairing` omits the `provider_id` query
+/// parameter and lets the server pick its default provider. Returning a
+/// fake `id: 0` here would otherwise forward `provider_id=0` to /m/setup
+/// and 400 on every server (DB ids start at 1).
+const LOCAL_ONLY_FALLBACK: ServerAuthDiscovery = {
+  serverName: '',
+  version: '',
+  mobileSetupUrl: '',
+  authStrategy: 'local-only',
+  providers: []
+}
+
+/// Generous-but-bounded timeout for the two public endpoints we hit
+/// before the user is authenticated. Long enough for a sluggish
+/// reverse-proxy / cold PHP-FPM worker, short enough that a firewalled
+/// host or wrong port doesn't leave the "接続中…" spinner hanging
+/// forever.
+const PUBLIC_FETCH_TIMEOUT_MS = 10_000
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs = PUBLIC_FETCH_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+function coerceProviderType(raw: unknown): AuthProviderType {
+  switch (raw) {
+    case 'local':
+    case 'oidc':
+    case 'saml':
+    case 'firebase':
+    case 'auth0':
+    case 'cognito':
+      return raw
+    default:
+      return 'unknown'
+  }
+}
+
+async function discoverProviders(sasoServerUrl: string): Promise<ServerAuthDiscovery> {
+  if (!sasoServerUrl) return LOCAL_ONLY_FALLBACK
+  try {
+    const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/providers`
+    const response = await fetchWithTimeout(url, {
+      headers: { Accept: 'application/json' }
+    })
+    if (!response.ok) return LOCAL_ONLY_FALLBACK
+    const raw = (await response.json()) as Record<string, unknown>
+    const providers = Array.isArray(raw.providers)
+      ? raw.providers.map((p: Record<string, unknown>) => ({
+          id: Number(p.id ?? 0),
+          name: String(p.name ?? ''),
+          type: coerceProviderType(p.type),
+          isDefault: Boolean(p.isDefault),
+          enabled: Boolean(p.enabled)
+        }))
+      : []
+    if (providers.length === 0) return LOCAL_ONLY_FALLBACK
+    const strategy = raw.authStrategy
+    return {
+      serverName: String(raw.serverName ?? ''),
+      version: String(raw.version ?? ''),
+      mobileSetupUrl: String(raw.mobileSetupUrl ?? ''),
+      authStrategy:
+        strategy === 'local-only' || strategy === 'default-only' || strategy === 'user-choice'
+          ? strategy
+          : 'local-only',
+      providers
+    }
+  } catch {
+    return LOCAL_ONLY_FALLBACK
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JWT exchange + refresh
+// ---------------------------------------------------------------------------
+
 async function exchangePairingForJwt(
   sasoServerUrl: string,
   rawToken: string,
@@ -116,9 +215,14 @@ export async function refreshIfNeeded(sasoServerUrl: string): Promise<StoredToke
   return next
 }
 
+// ---------------------------------------------------------------------------
+// Pairing flows — browser-based, optionally scoped to a provider
+// ---------------------------------------------------------------------------
+
 async function startPairing(
   sasoServerUrl: string,
-  deviceName: string
+  deviceName: string,
+  providerId?: number
 ): Promise<{ success: boolean; error?: string }> {
   if (!sasoServerUrl) {
     return { success: false, error: 'SASOサーバーURLが設定されていません' }
@@ -132,6 +236,9 @@ async function startPairing(
       redirect_uri: redirectUri,
       state
     })
+    if (providerId !== undefined) {
+      params.set('provider_id', String(providerId))
+    }
     const setupUrl = `${normalizeServerUrl(sasoServerUrl)}/m/setup?${params.toString()}`
     await shell.openExternal(setupUrl)
 
@@ -192,6 +299,40 @@ async function startManualPairing(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Server URL connection test (used by onboarding)
+// ---------------------------------------------------------------------------
+
+async function testServerUrl(
+  sasoServerUrl: string
+): Promise<{ success: boolean; error?: string; status?: number }> {
+  if (!sasoServerUrl) return { success: false, error: 'URLが空です' }
+  if (!/^https?:\/\//i.test(sasoServerUrl)) {
+    return { success: false, error: 'http:// または https:// で始まるURLを入力してください' }
+  }
+  try {
+    const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/health`
+    const response = await fetchWithTimeout(url, {
+      headers: { Accept: 'application/json' }
+    })
+    return {
+      success: response.ok,
+      status: response.status,
+      error: response.ok ? undefined : `HTTP ${response.status}`
+    }
+  } catch (err) {
+    const message =
+      (err as Error).name === 'AbortError'
+        ? `タイムアウト (${PUBLIC_FETCH_TIMEOUT_MS / 1000}秒)`
+        : (err as Error).message
+    return { success: false, error: message }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Token introspection helpers (used by getUser / isTokenValid)
+// ---------------------------------------------------------------------------
+
 export function getUser(): {
   id: string
   name: string
@@ -235,12 +376,30 @@ export function isTokenValid(): boolean {
   return new Date(token.expires_at) > new Date()
 }
 
+// ---------------------------------------------------------------------------
+// IPC wiring
+// ---------------------------------------------------------------------------
+
 export function registerAuthHandlers(mainWindow: BrowserWindow): void {
-  ipcMain.handle('auth:pair', async () => {
+  ipcMain.handle('auth:discoverProviders', async () => {
+    try {
+      const sasoServerUrl = getSetting('sasoServerUrl') || ''
+      const discovery = await discoverProviders(sasoServerUrl)
+      return { success: true, data: discovery }
+    } catch (error) {
+      return { success: false, error: (error as Error).message }
+    }
+  })
+
+  ipcMain.handle('auth:testServerUrl', async (_event, url: string) => {
+    return testServerUrl(url)
+  })
+
+  ipcMain.handle('auth:pair', async (_event, providerId?: number) => {
     try {
       const sasoServerUrl = getSetting('sasoServerUrl') || ''
       const deviceName = `${app.getName()} (${require('os').hostname()})`
-      const result = await startPairing(sasoServerUrl, deviceName)
+      const result = await startPairing(sasoServerUrl, deviceName, providerId)
       if (result.success) {
         mainWindow.webContents.send('auth:stateChanged', getUser())
       }

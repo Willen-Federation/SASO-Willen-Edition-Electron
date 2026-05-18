@@ -153,7 +153,9 @@ const insertDefaultSetting = db.prepare(
 insertDefaultSetting.run('taxRate', '10')
 insertDefaultSetting.run('currency', 'JPY')
 insertDefaultSetting.run('language', 'ja')
-insertDefaultSetting.run('sasoServerUrl', 'https://saso.sksl.jp')
+// sasoServerUrl is intentionally left unset on first launch so the
+// onboarding flow asks the user to type or scan it instead of silently
+// pre-filling a value that points at the wrong server.
 insertDefaultSetting.run('aiProvider', 'claude')
 insertDefaultSetting.run('claudeModel', 'claude-opus-4-5')
 insertDefaultSetting.run('openaiModel', 'gpt-4o')

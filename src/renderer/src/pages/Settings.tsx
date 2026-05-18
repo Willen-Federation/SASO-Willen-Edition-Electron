@@ -101,7 +101,7 @@ export default function Settings() {
     openaiModel: 'gpt-4o',
     geminiApiKey: '',
     geminiModel: 'gemini-1.5-pro',
-    sasoServerUrl: 'https://saso.sksl.jp',
+    sasoServerUrl: '',
     taxRate: '10',
     currency: 'JPY',
     defaultLabelSize: '58mm'
@@ -254,10 +254,10 @@ export default function Settings() {
                 type="url"
                 value={settings.sasoServerUrl}
                 onChange={(e) => set('sasoServerUrl', e.target.value)}
-                placeholder="https://saso.sksl.jp"
+                placeholder="https://saso.example.com"
                 className="input-field"
               />
-              <p className="text-xs text-gray-400 mt-1">SASO バックエンドの URL(末尾スラッシュ不要)。既定値は https://saso.sksl.jp。</p>
+              <p className="text-xs text-gray-400 mt-1">SASO バックエンドの URL(末尾スラッシュ不要)。空欄のままだと起動時にオンボーディング画面でURL入力を求められます。</p>
             </div>
 
             <TestConnectionRow />
