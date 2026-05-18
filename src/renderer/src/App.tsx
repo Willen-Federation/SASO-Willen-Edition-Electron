@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Items from './pages/Items'
@@ -10,12 +10,48 @@ import Labels from './pages/Labels'
 import AIAgent from './pages/AIAgent'
 import Settings from './pages/Settings'
 import Login from './pages/Login'
+import Onboarding from './pages/Onboarding'
 import { useAuth } from './stores/useAuth'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
-  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" /></div>
+  if (loading)
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    )
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+/// Gate every non-onboarding route on a configured `sasoServerUrl`.
+///
+/// On first launch the setting is empty (we removed the hardcoded default),
+/// so the user lands on `/onboarding` and is asked to type or scan the
+/// server URL before any auth flow can run.
+function OnboardingGate({ children }: { children: React.ReactNode }) {
+  const [resolved, setResolved] = useState<'pending' | 'ok' | 'missing'>('pending')
+  const location = useLocation()
+
+  useEffect(() => {
+    void window.api.settings.get('sasoServerUrl').then((res) => {
+      if (res.success && res.data && String(res.data).trim() !== '') {
+        setResolved('ok')
+      } else {
+        setResolved('missing')
+      }
+    })
+  }, [location.pathname])
+
+  if (resolved === 'pending') {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    )
+  }
+  if (resolved === 'missing') return <Navigate to="/onboarding" replace />
   return <>{children}</>
 }
 
@@ -23,22 +59,32 @@ export default function App() {
   const { checkAuth } = useAuth()
 
   useEffect(() => {
-    checkAuth()
+    void checkAuth()
     const unsubCallback = window.api.auth.onAuthCallback((user) => {
-      if (user) checkAuth()
+      if (user) void checkAuth()
     })
     return () => unsubCallback()
-  }, [])
+  }, [checkAuth])
 
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
+      <Route path="/onboarding" element={<Onboarding />} />
+      <Route
+        path="/login"
+        element={
+          <OnboardingGate>
+            <Login />
+          </OnboardingGate>
+        }
+      />
       <Route
         path="/"
         element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
+          <OnboardingGate>
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          </OnboardingGate>
         }
       >
         <Route index element={<Dashboard />} />

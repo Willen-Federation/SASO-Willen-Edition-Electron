@@ -78,7 +78,9 @@ const api = {
     chat: (messages: unknown[]) => ipcRenderer.invoke('ai:chat', messages)
   },
   auth: {
-    pair: () => ipcRenderer.invoke('auth:pair'),
+    discoverProviders: () => ipcRenderer.invoke('auth:discoverProviders'),
+    testServerUrl: (url: string) => ipcRenderer.invoke('auth:testServerUrl', url),
+    pair: (providerId?: number) => ipcRenderer.invoke('auth:pair', providerId),
     pairWithToken: (payload: string) => ipcRenderer.invoke('auth:pairWithToken', payload),
     logout: () => ipcRenderer.invoke('auth:logout'),
     getUser: () => ipcRenderer.invoke('auth:getUser'),

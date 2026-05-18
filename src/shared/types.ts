@@ -184,6 +184,31 @@ export interface AuthUser {
   expiresAt: string
 }
 
+export type AuthProviderType =
+  | 'local'
+  | 'oidc'
+  | 'saml'
+  | 'firebase'
+  | 'auth0'
+  | 'cognito'
+  | 'unknown'
+
+export interface AuthProviderSummary {
+  id: number
+  name: string
+  type: AuthProviderType
+  isDefault: boolean
+  enabled: boolean
+}
+
+export interface ServerAuthDiscovery {
+  serverName: string
+  version: string
+  mobileSetupUrl: string
+  authStrategy: 'local-only' | 'default-only' | 'user-choice'
+  providers: AuthProviderSummary[]
+}
+
 // ── IPC ───────────────────────────────────────────────────────────────────────
 export interface IpcResponse<T = unknown> {
   success: boolean
