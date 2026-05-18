@@ -38,9 +38,9 @@ export const useAuth = create<AuthState>((set) => ({
   },
 
   login: async () => {
-    const result = await window.api.auth.login()
+    const result = await window.api.auth.pair()
     if (!result.success) {
-      throw new Error(result.error || 'ログインに失敗しました')
+      throw new Error(result.error || 'ペアリングに失敗しました')
     }
   },
 

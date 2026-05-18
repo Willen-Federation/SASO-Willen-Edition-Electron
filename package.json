@@ -9,6 +9,7 @@
     "start": "electron-vite preview",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
+    "icons": "bash scripts/gen-icons.sh",
     "pack": "electron-vite build && electron-builder --dir",
     "dist": "electron-vite build && electron-builder",
     "typecheck": "tsc -b tsconfig.json && tsc --noEmit -p tsconfig.web.json"
@@ -52,9 +53,8 @@
     "productName": "SASO Willen Edition",
     "directories": { "buildResources": "build" },
     "files": ["out/**/*"],
-    "protocols": [{ "name": "SASO Auth", "schemes": ["saso"] }],
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg", "entitlementsInherit": "build/entitlements.mac.plist" },
-    "linux": { "target": "AppImage" }
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "mac": { "target": "dmg", "icon": "build/icon.icns" },
+    "linux": { "target": "AppImage", "icon": "build/icon.png" }
   }
 }

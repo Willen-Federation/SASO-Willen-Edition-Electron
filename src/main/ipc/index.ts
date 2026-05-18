@@ -5,6 +5,7 @@ import { registerSettingsHandlers } from './settings'
 import { registerAIHandlers } from './ai'
 import { registerLabelHandlers } from './labels'
 import { registerDashboardHandlers } from './dashboard'
+import { registerSyncHandlers } from '../sync'
 
 export function registerAllHandlers(): void {
   registerItemHandlers()
@@ -14,4 +15,5 @@ export function registerAllHandlers(): void {
   registerAIHandlers()
   registerLabelHandlers()
   registerDashboardHandlers()
+  registerSyncHandlers()
 }

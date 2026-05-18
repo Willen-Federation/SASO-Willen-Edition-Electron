@@ -1,10 +1,12 @@
-import { shell, BrowserWindow, app } from 'electron'
-import { createHash, randomBytes } from 'crypto'
+import { shell, BrowserWindow, ipcMain } from 'electron'
+import { randomBytes } from 'crypto'
 import { join } from 'path'
+import { app } from 'electron'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { awaitPairingCallback } from './loopback'
+import { getSetting } from '../database'
 
 function decodeBase64Url(str: string): string {
-  // Convert base64url to base64, then decode
   const base64 = str.replace(/-/g, '+').replace(/_/g, '/')
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
   return Buffer.from(padded, 'base64').toString('utf-8')
@@ -15,13 +17,13 @@ interface StoredToken {
   token_type: string
   expires_in?: number
   refresh_token?: string
-  id_token?: string
+  device_id?: number
+  device_name?: string
   expires_at?: string
 }
 
 interface AuthData {
   token: StoredToken | null
-  codeVerifier: string | null
 }
 
 function getAuthFilePath(): string {
@@ -37,121 +39,15 @@ function readAuthData(): AuthData {
   } catch {
     // ignore
   }
-  return { token: null, codeVerifier: null }
+  return { token: null }
 }
 
 function writeAuthData(data: AuthData): void {
-  try {
-    writeFileSync(getAuthFilePath(), JSON.stringify(data, null, 2), 'utf-8')
-  } catch {
-    // ignore
-  }
-}
-
-function base64UrlEncode(buffer: Buffer): string {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
-function generateCodeVerifier(): string {
-  return base64UrlEncode(randomBytes(32))
-}
-
-function generateCodeChallenge(verifier: string): string {
-  const hash = createHash('sha256').update(verifier).digest()
-  return base64UrlEncode(hash)
-}
-
-export function startLogin(authServerUrl: string, clientId: string): void {
-  const verifier = generateCodeVerifier()
-  const challenge = generateCodeChallenge(verifier)
-
-  const data = readAuthData()
-  data.codeVerifier = verifier
-  writeAuthData(data)
-
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: clientId,
-    redirect_uri: 'saso://auth/callback',
-    code_challenge: challenge,
-    code_challenge_method: 'S256',
-    scope: 'openid profile email'
-  })
-
-  const authUrl = `${authServerUrl}/authorize?${params.toString()}`
-  shell.openExternal(authUrl)
-}
-
-export async function handleCallback(
-  url: string,
-  authServerUrl: string,
-  clientId: string
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    const parsed = new URL(url)
-    const code = parsed.searchParams.get('code')
-    const error = parsed.searchParams.get('error')
-
-    if (error) {
-      return { success: false, error: `認証エラー: ${error}` }
-    }
-
-    if (!code) {
-      return { success: false, error: '認証コードが見つかりません' }
-    }
-
-    const authData = readAuthData()
-    const verifier = authData.codeVerifier
-    if (!verifier) {
-      return { success: false, error: 'コードベリファイアが見つかりません' }
-    }
-
-    const token = await exchangeCodeForToken(authServerUrl, clientId, code, verifier)
-    saveToken(token)
-    const updated = readAuthData()
-    updated.codeVerifier = null
-    writeAuthData(updated)
-
-    return { success: true }
-  } catch (err) {
-    return { success: false, error: (err as Error).message }
-  }
-}
-
-async function exchangeCodeForToken(
-  authServerUrl: string,
-  clientId: string,
-  code: string,
-  codeVerifier: string
-): Promise<StoredToken> {
-  const response = await fetch(`${authServerUrl}/token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: clientId,
-      redirect_uri: 'saso://auth/callback',
-      code,
-      code_verifier: codeVerifier
-    }).toString()
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`トークン取得失敗: ${response.status} ${text}`)
-  }
-
-  const data = (await response.json()) as StoredToken
-  if (data.expires_in) {
-    data.expires_at = new Date(Date.now() + data.expires_in * 1000).toISOString()
-  }
-  return data
+  writeFileSync(getAuthFilePath(), JSON.stringify(data, null, 2), 'utf-8')
 }
 
 export function saveToken(token: StoredToken): void {
-  const data = readAuthData()
-  data.token = token
-  writeAuthData(data)
+  writeAuthData({ token })
 }
 
 export function getToken(): StoredToken | null {
@@ -159,55 +55,134 @@ export function getToken(): StoredToken | null {
 }
 
 export function clearToken(): void {
-  writeAuthData({ token: null, codeVerifier: null })
+  writeAuthData({ token: null })
 }
 
-export function getUser(): { id: string; name: string; email: string; token: string; expiresAt: string } | null {
+function normalizeServerUrl(raw: string): string {
+  return raw.replace(/\/+$/, '')
+}
+
+async function exchangePairingForJwt(
+  sasoServerUrl: string,
+  rawToken: string,
+  deviceName: string
+): Promise<StoredToken> {
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/mobile/connect`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({ token: rawToken, deviceName })
+  })
+  if (!response.ok) {
+    const text = await response.text()
+    throw new Error(`/mobile/connect failed: ${response.status} ${text}`)
+  }
+  const data = (await response.json()) as StoredToken
+  if (!data.expires_at && data.expires_in) {
+    data.expires_at = new Date(Date.now() + data.expires_in * 1000).toISOString()
+  }
+  return data
+}
+
+export async function refreshIfNeeded(sasoServerUrl: string): Promise<StoredToken | null> {
+  const token = getToken()
+  if (!token || !token.refresh_token) return token
+  const expiresAtMs = token.expires_at ? new Date(token.expires_at).getTime() : 0
+  if (expiresAtMs - Date.now() > 60_000) return token
+
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/mobile/token/refresh`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json'
+    },
+    body: JSON.stringify({ refresh_token: token.refresh_token })
+  })
+  if (!response.ok) {
+    return null
+  }
+  const next = (await response.json()) as StoredToken
+  if (!next.expires_at && next.expires_in) {
+    next.expires_at = new Date(Date.now() + next.expires_in * 1000).toISOString()
+  }
+  // Carry forward device metadata if the refresh response omits it.
+  next.device_id = next.device_id ?? token.device_id
+  next.device_name = next.device_name ?? token.device_name
+  saveToken(next)
+  return next
+}
+
+async function startPairing(
+  sasoServerUrl: string,
+  deviceName: string
+): Promise<{ success: boolean; error?: string }> {
+  if (!sasoServerUrl) {
+    return { success: false, error: 'SASOサーバーURLが設定されていません' }
+  }
+
+  const state = randomBytes(16).toString('hex')
+  const { port, promise, dispose } = await awaitPairingCallback(state)
+  try {
+    const redirectUri = `http://127.0.0.1:${port}/callback`
+    const params = new URLSearchParams({
+      redirect_uri: redirectUri,
+      state
+    })
+    const setupUrl = `${normalizeServerUrl(sasoServerUrl)}/m/setup?${params.toString()}`
+    await shell.openExternal(setupUrl)
+
+    const { token: rawToken, server: claimedServer } = await promise
+
+    // Prefer the server URL the IdP redirected back with (matches the
+    // pairing code's origin), but fall back to the configured value.
+    const targetServer = claimedServer || sasoServerUrl
+    const jwt = await exchangePairingForJwt(targetServer, rawToken, deviceName)
+    saveToken(jwt)
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: (err as Error).message }
+  } finally {
+    dispose()
+  }
+}
+
+export function getUser(): {
+  id: string
+  name: string
+  email: string
+  token: string
+  expiresAt: string
+  deviceName: string
+} | null {
   const token = getToken()
   if (!token) return null
 
-  // Try to decode JWT id_token
-  if (token.id_token) {
-    try {
-      const parts = token.id_token.split('.')
-      if (parts.length === 3) {
-        const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<string, unknown>
-        return {
-          id: (payload.sub as string) || '',
-          name: (payload.name as string) || (payload.preferred_username as string) || '',
-          email: (payload.email as string) || '',
-          token: token.access_token,
-          expiresAt: token.expires_at || ''
-        }
-      }
-    } catch {
-      // Fall through
-    }
-  }
-
-  // Try to decode access token as JWT
+  let id = ''
+  let name = ''
+  let email = ''
   try {
     const parts = token.access_token.split('.')
     if (parts.length === 3) {
       const payload = JSON.parse(decodeBase64Url(parts[1])) as Record<string, unknown>
-      return {
-        id: (payload.sub as string) || 'user',
-        name: (payload.name as string) || (payload.preferred_username as string) || 'ユーザー',
-        email: (payload.email as string) || '',
-        token: token.access_token,
-        expiresAt: token.expires_at || ''
-      }
+      id = (payload.sub as string) || (payload.mid as string) || ''
+      name = (payload.name as string) || (payload.mid as string) || ''
+      email = (payload.email as string) || ''
     }
   } catch {
-    // Fall through
+    // fall through
   }
 
   return {
-    id: 'user',
-    name: 'ログイン済みユーザー',
-    email: '',
+    id: id || 'user',
+    name: name || token.device_name || 'ペアリング済みデバイス',
+    email,
     token: token.access_token,
-    expiresAt: token.expires_at || ''
+    expiresAt: token.expires_at || '',
+    deviceName: token.device_name || ''
   }
 }
 
@@ -218,72 +193,16 @@ export function isTokenValid(): boolean {
   return new Date(token.expires_at) > new Date()
 }
 
-// Register IPC handlers for auth
-import { ipcMain } from 'electron'
-import { getSetting } from '../database'
-
-export async function loginWithCredentials(
-  serverUrl: string,
-  id: string,
-  password: string
-): Promise<{ success: boolean; user?: { id: string; name: string }; error?: string }> {
-  try {
-    const formData = new URLSearchParams({ id, password })
-    const response = await fetch(`${serverUrl}/index.php?matter=auth&action=login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    })
-    if (!response.ok) {
-      return { success: false, error: `サーバーエラー: ${response.status}` }
-    }
-    const text = await response.text()
-    // Try JSON parse first
-    try {
-      const json = JSON.parse(text) as Record<string, unknown>
-      if (json.success === false || json.error) {
-        return { success: false, error: String(json.error || 'ログインに失敗しました') }
-      }
-      const user = {
-        id: String(json.id || json.user_id || id),
-        name: String(json.name || json.username || id)
-      }
-      return { success: true, user }
-    } catch {
-      // Non-JSON response — treat non-empty as success
-      if (text.trim().length > 0 && !text.includes('error') && !text.includes('Error')) {
-        return { success: true, user: { id, name: id } }
-      }
-      return { success: false, error: 'ログインに失敗しました' }
-    }
-  } catch (err) {
-    return { success: false, error: (err as Error).message }
-  }
-}
-
 export function registerAuthHandlers(mainWindow: BrowserWindow): void {
-  ipcMain.handle('auth:loginWithCredentials', async (_event, id: string, password: string) => {
+  ipcMain.handle('auth:pair', async () => {
     try {
       const sasoServerUrl = getSetting('sasoServerUrl') || ''
-      if (!sasoServerUrl) {
-        return { success: false, error: 'SasoサーバーURLが設定されていません' }
+      const deviceName = `${app.getName()} (${require('os').hostname()})`
+      const result = await startPairing(sasoServerUrl, deviceName)
+      if (result.success) {
+        mainWindow.webContents.send('auth:stateChanged', getUser())
       }
-      const result = await loginWithCredentials(sasoServerUrl, id, password)
       return result
-    } catch (error) {
-      return { success: false, error: (error as Error).message }
-    }
-  })
-
-  ipcMain.handle('auth:login', async () => {
-    try {
-      const authServerUrl = getSetting('authServerUrl') || ''
-      const clientId = getSetting('authClientId') || ''
-      if (!authServerUrl || !clientId) {
-        return { success: false, error: '認証サーバーURLとクライアントIDを設定してください' }
-      }
-      startLogin(authServerUrl, clientId)
-      return { success: true }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }
@@ -301,8 +220,7 @@ export function registerAuthHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('auth:getUser', async () => {
     try {
-      const user = getUser()
-      return { success: true, data: user }
+      return { success: true, data: getUser() }
     } catch (error) {
       return { success: false, error: (error as Error).message }
     }
@@ -310,6 +228,8 @@ export function registerAuthHandlers(mainWindow: BrowserWindow): void {
 
   ipcMain.handle('auth:getToken', async () => {
     try {
+      const sasoServerUrl = getSetting('sasoServerUrl') || ''
+      if (sasoServerUrl) await refreshIfNeeded(sasoServerUrl)
       const token = getToken()
       return { success: true, data: token?.access_token || null }
     } catch (error) {
