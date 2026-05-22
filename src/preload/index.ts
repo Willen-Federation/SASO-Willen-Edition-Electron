@@ -116,7 +116,18 @@ const api = {
       ipcRenderer.invoke('sync:storage-locations:get', id),
     storageLocationsItems: (id: string | number) =>
       ipcRenderer.invoke('sync:storage-locations:items', id),
-    barcodeGet: (code: string) => ipcRenderer.invoke('sync:barcode:get', code)
+    barcodeGet: (code: string) => ipcRenderer.invoke('sync:barcode:get', code),
+    mobileConfig: () => ipcRenderer.invoke('sync:mobile:config'),
+    itemsDraftCreate: (args: {
+      imagePath: string
+      fields?: {
+        item_name?: string
+        jan_code?: string
+        isbn?: string
+        price?: string | number
+        barcode_hint?: string
+      }
+    }) => ipcRenderer.invoke('sync:items:drafts:create', args)
   },
   labels: {
     print: (options?: unknown) => ipcRenderer.invoke('labels:print', options),
@@ -124,6 +135,24 @@ const api = {
   },
   dashboard: {
     getStats: () => ipcRenderer.invoke('dashboard:stats')
+  },
+  shell: {
+    openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
+  },
+  dialog: {
+    pickImage: () => ipcRenderer.invoke('dialog:pickImage')
+  },
+  syncQueue: {
+    list: () => ipcRenderer.invoke('sync:queue:list'),
+    pendingCount: () => ipcRenderer.invoke('sync:queue:pendingCount'),
+    drainNow: () => ipcRenderer.invoke('sync:queue:drainNow'),
+    remove: (id: string) => ipcRenderer.invoke('sync:queue:remove', id),
+    onUpdated: (callback: (info: { pending: number; conflict: number; failed: number }) => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, info: { pending: number; conflict: number; failed: number }) =>
+        callback(info)
+      ipcRenderer.on('sync:queue:updated', listener)
+      return () => ipcRenderer.removeListener('sync:queue:updated', listener)
+    }
   }
 }
 

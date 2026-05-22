@@ -340,6 +340,9 @@ export function getUser(): {
   token: string
   expiresAt: string
   deviceName: string
+  deviceId?: number | string
+  memberId?: string
+  scopes: string[]
 } | null {
   const token = getToken()
   if (!token) return null
@@ -347,6 +350,8 @@ export function getUser(): {
   let id = ''
   let name = ''
   let email = ''
+  let memberId = ''
+  let scopes: string[] = []
   try {
     const parts = token.access_token.split('.')
     if (parts.length === 3) {
@@ -354,6 +359,13 @@ export function getUser(): {
       id = (payload.sub as string) || (payload.mid as string) || ''
       name = (payload.name as string) || (payload.mid as string) || ''
       email = (payload.email as string) || ''
+      memberId = (payload.mid as string) || ''
+      const rawScopes = payload.scope ?? payload.scopes
+      if (typeof rawScopes === 'string') {
+        scopes = rawScopes.split(/\s+/).filter(Boolean)
+      } else if (Array.isArray(rawScopes)) {
+        scopes = rawScopes.map((s) => String(s))
+      }
     }
   } catch {
     // fall through
@@ -365,7 +377,10 @@ export function getUser(): {
     email,
     token: token.access_token,
     expiresAt: token.expires_at || '',
-    deviceName: token.device_name || ''
+    deviceName: token.device_name || '',
+    deviceId: token.device_id,
+    memberId,
+    scopes
   }
 }
 

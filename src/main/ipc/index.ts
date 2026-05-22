@@ -5,7 +5,10 @@ import { registerSettingsHandlers } from './settings'
 import { registerAIHandlers } from './ai'
 import { registerLabelHandlers } from './labels'
 import { registerDashboardHandlers } from './dashboard'
+import { registerShellHandlers } from './shell'
+import { registerDialogHandlers } from './dialog'
 import { registerSyncHandlers } from '../sync'
+import { registerSyncQueueHandlers, startSyncQueueWorker } from '../sync/queue'
 
 export function registerAllHandlers(): void {
   registerItemHandlers()
@@ -15,5 +18,9 @@ export function registerAllHandlers(): void {
   registerAIHandlers()
   registerLabelHandlers()
   registerDashboardHandlers()
+  registerShellHandlers()
+  registerDialogHandlers()
   registerSyncHandlers()
+  registerSyncQueueHandlers()
+  startSyncQueueWorker()
 }

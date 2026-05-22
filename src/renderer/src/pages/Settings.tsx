@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Save, Eye, EyeOff, CheckCircle } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { Save, Eye, EyeOff, CheckCircle, ExternalLink, RefreshCw, Trash2, AlertTriangle, CloudOff } from 'lucide-react'
+import { useFeatureFlags } from '../stores/useFeatureFlags'
+import { useSyncQueue } from '../stores/useSyncQueue'
+import type { AuthUser, PendingSyncOp } from '@shared/types'
 
-type Tab = 'ai' | 'auth' | 'general'
+type Tab = 'ai' | 'auth' | 'sync' | 'general'
 
 interface Settings {
   aiProvider: string
@@ -67,32 +71,244 @@ function TestConnectionRow() {
   )
 }
 
-function PairingStatusRow() {
-  const [user, setUser] = useState<{ name: string; expiresAt: string; deviceName?: string } | null>(null)
+function DeviceInfoSection({ serverUrl }: { serverUrl: string }) {
+  const [user, setUser] = useState<AuthUser | null>(null)
+
   useEffect(() => {
     window.api.auth.getUser().then((r) => {
-      if (r.success && r.data) {
-        setUser(r.data as { name: string; expiresAt: string; deviceName?: string })
-      }
+      if (r.success && r.data) setUser(r.data as AuthUser)
     })
   }, [])
+
+  const openMyPage = async () => {
+    if (!serverUrl) return
+    const trimmed = serverUrl.replace(/\/+$/, '')
+    await window.api.shell.openExternal(`${trimmed}/mypage/start/`)
+  }
+
+  if (!user) {
+    return (
+      <div className="border-t border-gray-100 pt-4">
+        <p className="text-sm font-medium text-gray-700 mb-2">デバイス情報</p>
+        <p className="text-sm text-gray-500">未ペアリングです</p>
+      </div>
+    )
+  }
+
   return (
-    <div className="border-t border-gray-100 pt-4">
-      <p className="text-sm font-medium text-gray-700 mb-2">ペアリング状態</p>
-      {user ? (
-        <div className="text-sm text-gray-600">
-          <p>デバイス名: <span className="font-mono">{user.deviceName || user.name}</span></p>
-          <p>JWT 有効期限: <span className="font-mono">{user.expiresAt}</span></p>
+    <div className="border-t border-gray-100 pt-4 space-y-2">
+      <p className="text-sm font-medium text-gray-700">デバイス情報</p>
+      <dl className="text-xs text-gray-600 grid grid-cols-[120px_1fr] gap-y-1">
+        <dt>デバイス名</dt>
+        <dd className="font-mono">{user.deviceName || user.name}</dd>
+        <dt>デバイス ID</dt>
+        <dd className="font-mono">{user.deviceId !== undefined ? String(user.deviceId) : '-'}</dd>
+        <dt>メンバー ID</dt>
+        <dd className="font-mono">{user.memberId || user.id || '-'}</dd>
+        <dt>JWT 有効期限</dt>
+        <dd className="font-mono">{user.expiresAt || '-'}</dd>
+        <dt>付与スコープ</dt>
+        <dd className="flex flex-wrap gap-1">
+          {(user.scopes ?? []).length > 0 ? (
+            (user.scopes ?? []).map((s) => (
+              <span key={s} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 font-mono text-gray-700">
+                {s}
+              </span>
+            ))
+          ) : (
+            <span className="text-gray-400">なし</span>
+          )}
+        </dd>
+      </dl>
+      <button
+        onClick={openMyPage}
+        disabled={!serverUrl}
+        className="btn-secondary text-sm flex items-center gap-2 mt-3 disabled:opacity-50"
+      >
+        <ExternalLink size={14} />
+        サーバー側で詳細管理 (/mypage)
+      </button>
+      <p className="text-xs text-gray-400">
+        他端末の一覧や失効など、ペアリング済みデバイスの管理は SASO サーバーの MyPage で行います。
+      </p>
+    </div>
+  )
+}
+
+function FeatureFlagsSection() {
+  const flags = useFeatureFlags((s) => s.flags)
+  const loaded = useFeatureFlags((s) => s.loaded)
+  const loading = useFeatureFlags((s) => s.loading)
+  const version = useFeatureFlags((s) => s.version)
+  const generatedAt = useFeatureFlags((s) => s.generatedAt)
+  const error = useFeatureFlags((s) => s.error)
+  const load = useFeatureFlags((s) => s.load)
+
+  return (
+    <div className="border-t border-gray-100 pt-4 space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-gray-700">フィーチャーフラグ</p>
+        <button
+          onClick={() => void load()}
+          disabled={loading}
+          className="btn-secondary text-xs flex items-center gap-1 disabled:opacity-50"
+        >
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          再取得
+        </button>
+      </div>
+      {!loaded && !loading && (
+        <p className="text-xs text-gray-400">ペアリング後に自動取得されます</p>
+      )}
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      {loaded && (
+        <>
+          <p className="text-xs text-gray-400">
+            version: <span className="font-mono">{version || '-'}</span>{' '}
+            <span className="mx-1">·</span> generated: <span className="font-mono">{generatedAt || '-'}</span>
+          </p>
+          {flags.length === 0 ? (
+            <p className="text-xs text-gray-400">フラグはありません</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {flags.map((f) => (
+                <span
+                  key={f.key}
+                  className={`text-xs px-2 py-0.5 rounded font-mono ${
+                    f.enabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                  }`}
+                  title={f.rolloutPercent !== undefined ? `rollout: ${f.rolloutPercent}%` : undefined}
+                >
+                  {f.key}: {f.enabled ? 'on' : 'off'}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SyncQueueSection() {
+  const counts = useSyncQueue((s) => s.counts)
+  const ops = useSyncQueue((s) => s.ops)
+  const draining = useSyncQueue((s) => s.draining)
+  const refresh = useSyncQueue((s) => s.refresh)
+  const drainNow = useSyncQueue((s) => s.drainNow)
+  const remove = useSyncQueue((s) => s.remove)
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const renderRow = (op: PendingSyncOp) => {
+    const badgeColor =
+      op.status === 'conflict'
+        ? 'bg-red-100 text-red-700'
+        : op.status === 'failed'
+        ? 'bg-gray-200 text-gray-700'
+        : 'bg-yellow-100 text-yellow-700'
+    return (
+      <div key={op.id} className="border border-gray-200 rounded-lg p-3 text-xs space-y-1">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-0.5 rounded ${badgeColor}`}>
+              {op.status === 'pending' ? '保留中' : op.status === 'conflict' ? '競合' : '失敗'}
+            </span>
+            <span className="font-mono text-gray-600">
+              {op.method} {op.endpoint}
+            </span>
+          </div>
+          <button
+            onClick={() => void remove(op.id)}
+            className="text-red-400 hover:text-red-600"
+            title="削除"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+        <div className="text-gray-500 grid grid-cols-2 gap-x-3 gap-y-0.5">
+          <span>retry: {op.retryCount}</span>
+          <span>作成: {op.createdAt}</span>
+        </div>
+        {op.lastError && (
+          <p className="text-red-600 font-mono break-all">{op.lastError}</p>
+        )}
+        <details className="text-gray-400">
+          <summary className="cursor-pointer">body</summary>
+          <pre className="font-mono whitespace-pre-wrap break-all bg-gray-50 p-2 rounded mt-1">{op.body}</pre>
+        </details>
+      </div>
+    )
+  }
+
+  const hasIssues = counts.conflict > 0 || counts.failed > 0
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-700">
+        <p className="font-medium mb-1">オフラインキュー</p>
+        <p>
+          オフライン中の作成/更新は SQLite に保存され、30秒ごとの自動チェックで復旧後に順次再送されます。
+          Idempotency-Key により重複登録は起きません。
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="card p-3">
+          <div className="text-xs text-gray-500">保留中</div>
+          <div className="text-2xl font-bold text-yellow-700">{counts.pending}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-xs text-gray-500">競合</div>
+          <div className="text-2xl font-bold text-red-700">{counts.conflict}</div>
+        </div>
+        <div className="card p-3">
+          <div className="text-xs text-gray-500">失敗</div>
+          <div className="text-2xl font-bold text-gray-700">{counts.failed}</div>
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => void drainNow()}
+          disabled={draining || counts.pending === 0}
+          className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+        >
+          <RefreshCw size={14} className={draining ? 'animate-spin' : ''} />
+          {draining ? '同期中...' : '今すぐ再送'}
+        </button>
+        <button onClick={() => void refresh()} className="btn-secondary text-sm">
+          再読み込み
+        </button>
+      </div>
+
+      {hasIssues && (
+        <div className="text-xs bg-red-50 border border-red-200 text-red-700 rounded-lg p-3 flex gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <span>
+            競合または失敗エントリがあります。サーバー側で対象が更新された可能性があります。確認の上、削除してください。
+          </span>
+        </div>
+      )}
+
+      {ops.length === 0 ? (
+        <div className="text-center text-gray-400 py-8">
+          <CloudOff size={28} className="mx-auto mb-2 opacity-30" />
+          <div className="text-sm">同期待ちのオペレーションはありません</div>
         </div>
       ) : (
-        <p className="text-sm text-gray-500">未ペアリング</p>
+        <div className="space-y-2">{ops.map(renderRow)}</div>
       )}
     </div>
   )
 }
 
 export default function Settings() {
-  const [tab, setTab] = useState<Tab>('ai')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialTab = (searchParams.get('tab') as Tab) || 'ai'
+  const [tab, setTab] = useState<Tab>(initialTab)
   const [settings, setSettings] = useState<Settings>({
     aiProvider: 'claude',
     claudeApiKey: '',
@@ -132,27 +348,38 @@ export default function Settings() {
     setTimeout(() => setSaved(false), 2500)
   }
 
-  const tabs = [
+  const tabs: { id: Tab; label: string }[] = [
     { id: 'ai', label: 'AI設定' },
     { id: 'auth', label: '認証' },
+    { id: 'sync', label: '同期' },
     { id: 'general', label: '一般' }
   ]
+
+  const switchTab = (next: Tab) => {
+    setTab(next)
+    const params = new URLSearchParams(searchParams)
+    if (next === 'ai') params.delete('tab')
+    else params.set('tab', next)
+    setSearchParams(params, { replace: true })
+  }
 
   return (
     <div className="space-y-4 max-w-2xl">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-800">設定</h2>
-        <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 disabled:opacity-50">
-          {saved ? <CheckCircle size={16} /> : <Save size={16} />}
-          {saving ? '保存中...' : saved ? '保存しました' : '保存'}
-        </button>
+        {tab !== 'sync' && (
+          <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2 disabled:opacity-50">
+            {saved ? <CheckCircle size={16} /> : <Save size={16} />}
+            {saving ? '保存中...' : saved ? '保存しました' : '保存'}
+          </button>
+        )}
       </div>
 
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
         {tabs.map((t) => (
           <button
             key={t.id}
-            onClick={() => setTab(t.id as Tab)}
+            onClick={() => switchTab(t.id)}
             className={`px-4 py-1.5 text-sm rounded-md transition-colors ${tab === t.id ? 'bg-white text-gray-900 shadow-sm font-medium' : 'text-gray-500 hover:text-gray-700'}`}
           >
             {t.label}
@@ -261,9 +488,12 @@ export default function Settings() {
             </div>
 
             <TestConnectionRow />
-            <PairingStatusRow />
+            <DeviceInfoSection serverUrl={settings.sasoServerUrl} />
+            <FeatureFlagsSection />
           </div>
         )}
+
+        {tab === 'sync' && <SyncQueueSection />}
 
         {tab === 'general' && (
           <div className="space-y-4">
