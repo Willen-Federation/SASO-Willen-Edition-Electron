@@ -144,6 +144,19 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS pending_sync_ops (
+    id TEXT PRIMARY KEY,
+    op_type TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    method TEXT NOT NULL,
+    body TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    status TEXT NOT NULL DEFAULT 'pending'
+  );
 `)
 
 // Insert default settings if not exists

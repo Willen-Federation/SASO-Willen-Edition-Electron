@@ -13,8 +13,24 @@ import type {
   AIMessage,
   AuthUser,
   ServerAuthDiscovery,
-  IpcResponse
+  IpcResponse,
+  RemoteItem,
+  RemoteItemListResponse,
+  RemoteItemCreate,
+  RemoteItemPatch,
+  RemoteCategory,
+  RemoteCategoryListResponse,
+  RemoteStorageLocation,
+  RemoteStorageLocationListResponse,
+  BarcodeLookupResult,
+  MobileConfigBundle,
+  RemoteItemDraftCreated,
+  PendingSyncOp
 } from '../shared/types'
+
+type SyncResult<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; status?: number; queued?: { id: string } }
 
 interface CreateOrderData {
   customer_id?: string
@@ -108,7 +124,7 @@ declare global {
         onAuthCallback: (callback: (user: AuthUser | null) => void) => () => void
       }
       sync: {
-        health: () => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        health: () => Promise<SyncResult<{ status: string; version: string; time: string }>>
         itemsList: (
           query?: {
             q?: string
@@ -119,15 +135,30 @@ declare global {
             cursor?: number
             limit?: number
           }
-        ) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        itemsGet: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        itemsCreate: (data: unknown, idempotencyKey?: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        itemsUpdate: (id: string | number, data: unknown, idempotencyKey?: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        categoriesList: (format?: 'flat' | 'tree') => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        storageLocationsList: () => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        storageLocationsGet: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        storageLocationsItems: (id: string | number) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
-        barcodeGet: (code: string) => Promise<{ success: boolean; data?: unknown; error?: string; status?: number }>
+        ) => Promise<SyncResult<RemoteItemListResponse>>
+        itemsGet: (id: string | number) => Promise<SyncResult<RemoteItem>>
+        itemsCreate: (data: RemoteItemCreate, idempotencyKey?: string) => Promise<SyncResult<RemoteItem>>
+        itemsUpdate: (
+          id: string | number,
+          data: RemoteItemPatch,
+          idempotencyKey?: string
+        ) => Promise<SyncResult<RemoteItem>>
+        categoriesList: (format?: 'flat' | 'tree') => Promise<SyncResult<RemoteCategoryListResponse>>
+        storageLocationsList: () => Promise<SyncResult<RemoteStorageLocationListResponse>>
+        storageLocationsGet: (id: string | number) => Promise<SyncResult<RemoteStorageLocation>>
+        storageLocationsItems: (id: string | number) => Promise<SyncResult<{ data: RemoteItem[]; total: number }>>
+        barcodeGet: (code: string) => Promise<SyncResult<BarcodeLookupResult>>
+        mobileConfig: () => Promise<SyncResult<MobileConfigBundle>>
+        itemsDraftCreate: (args: {
+          imagePath: string
+          fields?: {
+            item_name?: string
+            jan_code?: string
+            isbn?: string
+            price?: string | number
+            barcode_hint?: string
+          }
+        }) => Promise<SyncResult<RemoteItemDraftCreated>>
       }
       labels: {
         print: (options?: { printerName?: string; silent?: boolean }) => Promise<IpcResponse<void>>
@@ -135,6 +166,25 @@ declare global {
       }
       dashboard: {
         getStats: () => Promise<IpcResponse<DashboardStats>>
+      }
+      shell: {
+        openExternal: (url: string) => Promise<{ success: boolean; error?: string }>
+      }
+      dialog: {
+        pickImage: () => Promise<
+          { success: true; canceled: false; path: string; name: string; mimeType: string; size: number }
+          | { success: true; canceled: true }
+          | { success: false; error: string }
+        >
+      }
+      syncQueue: {
+        list: () => Promise<IpcResponse<PendingSyncOp[]>>
+        pendingCount: () => Promise<IpcResponse<{ pending: number; conflict: number; failed: number }>>
+        drainNow: () => Promise<IpcResponse<{ drained: number; remaining: number }>>
+        remove: (id: string) => Promise<IpcResponse<void>>
+        onUpdated: (
+          callback: (info: { pending: number; conflict: number; failed: number }) => void
+        ) => () => void
       }
     }
   }

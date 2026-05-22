@@ -182,6 +182,10 @@ export interface AuthUser {
   email: string
   token: string
   expiresAt: string
+  deviceName?: string
+  deviceId?: number | string
+  memberId?: string
+  scopes?: string[]
 }
 
 export type AuthProviderType =
@@ -232,4 +236,151 @@ export interface ToolCall {
 export interface AIResponse {
   message: string
   toolCalls?: ToolCall[]
+}
+
+// ── Server-side (Remote) API resources ────────────────────────────────────────
+// These mirror the SASO server's /api/v1 REST responses. They are intentionally
+// separate from the local `Item`/`Category` types above, which model the local
+// PLA/paper + color/size variation workflow and are not the same domain object.
+
+// Must match server UpdateItemController status enum.
+export type ItemStatus =
+  | 'active'
+  | 'archived'
+  | 'discontinued'
+  | 'pending'
+  | 'in_storage'
+  | 'in_use'
+  | 'for_sale'
+  | 'reserved'
+  | 'shipped'
+
+export interface RemoteItemAttribute {
+  key: string
+  label: string
+  value: string
+}
+
+export interface RemoteItem {
+  id: number | string
+  name: string
+  description?: string | null
+  categoryId: number | string | null
+  categoryName?: string | null
+  janCode?: string | null
+  isbnCode?: string | null
+  labelCode?: string | null
+  note?: string | null
+  price?: number | null
+  stock?: number | null
+  status: ItemStatus
+  storageLocationId?: number | string | null
+  features?: unknown
+  registeredAt?: string
+  updatedAt?: string
+  attributes?: RemoteItemAttribute[]
+}
+
+export interface RemoteItemListResponse {
+  data: RemoteItem[]
+  total: number
+  nextCursor: number | null
+}
+
+export interface RemoteCategory {
+  id: number | string
+  name: string
+  nameEn?: string | null
+  nameJa?: string | null
+  parentId: number | string | null
+  depth: number
+  sortOrder: number
+  code?: string | null
+  children: RemoteCategory[]
+}
+
+export interface RemoteCategoryListResponse {
+  data: RemoteCategory[]
+  total: number
+}
+
+export interface RemoteStorageLocation {
+  id: number | string
+  parentId: number | string | null
+  code: string
+  name: string
+  locationType: string
+  depth: number
+  position: number
+  operationalStatus: string
+  canReceive: boolean
+  canShip: boolean
+  capacity: number | null
+  description: string | null
+}
+
+export interface RemoteStorageLocationListResponse {
+  data: RemoteStorageLocation[]
+  total: number
+}
+
+export interface BarcodeLookupResult {
+  code: string
+  status: string
+  item: { id: number | string; name: string } | null
+}
+
+export interface RemoteItemCreate {
+  name: string
+  categoryId: number | string
+  janCode?: string | null
+  isbnCode?: string | null
+  labelCode?: string | null
+  note?: string | null
+  price?: number | null
+  stock?: number | null
+}
+
+export type RemoteItemPatch = Partial<RemoteItemCreate & { status: ItemStatus }>
+
+export interface FeatureFlag {
+  key: string
+  enabled: boolean
+  rolloutPercent?: number
+  conditions?: unknown
+}
+
+export interface MobileConfigBundle {
+  version: string
+  generatedAt: string
+  featureFlags: FeatureFlag[]
+}
+
+export interface RemoteItemDraftCreated {
+  draft_id: string | number
+  status: string
+}
+
+// Subset of the JWT claims we surface to the renderer for the
+// device-info section. Scopes drive UI gating in addition to the
+// fetched feature flags.
+export interface DeviceTokenInfo {
+  deviceId?: number | string
+  deviceName?: string
+  expiresAt?: string
+  scopes: string[]
+  memberId?: string
+}
+
+export interface PendingSyncOp {
+  id: string
+  opType: 'create' | 'update'
+  endpoint: string
+  method: string
+  body: string
+  idempotencyKey: string
+  createdAt: string
+  retryCount: number
+  lastError: string | null
+  status: 'pending' | 'conflict' | 'failed'
 }

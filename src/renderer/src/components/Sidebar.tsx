@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   Layers,
+  Cloud,
   Warehouse,
   ShoppingCart,
   Users,
@@ -13,6 +14,7 @@ import {
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'ダッシュボード', end: true },
   { to: '/items', icon: Layers, label: '商品管理' },
+  { to: '/remote-items', icon: Cloud, label: 'サーバー商品' },
   { to: '/inventory', icon: Warehouse, label: '在庫管理' },
   { to: '/sales', icon: ShoppingCart, label: '販売管理' },
   { to: '/customers', icon: Users, label: '顧客管理' },

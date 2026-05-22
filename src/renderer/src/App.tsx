@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Items from './pages/Items'
+import RemoteItems from './pages/RemoteItems'
 import Inventory from './pages/Inventory'
 import Sales from './pages/Sales'
 import Customers from './pages/Customers'
@@ -12,9 +13,18 @@ import Settings from './pages/Settings'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 import { useAuth } from './stores/useAuth'
+import { useFeatureFlags } from './stores/useFeatureFlags'
+import { useSyncQueue } from './stores/useSyncQueue'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
+  const loadFlags = useFeatureFlags((s) => s.load)
+  const flagsLoaded = useFeatureFlags((s) => s.loaded)
+
+  useEffect(() => {
+    if (isAuthenticated && !flagsLoaded) void loadFlags()
+  }, [isAuthenticated, flagsLoaded, loadFlags])
+
   if (loading)
     return (
       <div className="flex items-center justify-center h-screen">
@@ -57,14 +67,21 @@ function OnboardingGate({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   const { checkAuth } = useAuth()
+  const subscribeQueue = useSyncQueue((s) => s.subscribe)
+  const refreshQueueCounts = useSyncQueue((s) => s.refreshCounts)
 
   useEffect(() => {
     void checkAuth()
-    const unsubCallback = window.api.auth.onAuthCallback((user) => {
+    void refreshQueueCounts()
+    const unsubAuth = window.api.auth.onAuthCallback((user) => {
       if (user) void checkAuth()
     })
-    return () => unsubCallback()
-  }, [checkAuth])
+    const unsubQueue = subscribeQueue()
+    return () => {
+      unsubAuth()
+      unsubQueue()
+    }
+  }, [checkAuth, refreshQueueCounts, subscribeQueue])
 
   return (
     <Routes>
@@ -89,6 +106,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="items" element={<Items />} />
+        <Route path="remote-items" element={<RemoteItems />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="sales" element={<Sales />} />
         <Route path="customers" element={<Customers />} />
