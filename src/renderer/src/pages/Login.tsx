@@ -8,7 +8,9 @@ import {
   Lock,
   Cloud,
   Flame,
-  ExternalLink
+  ExternalLink,
+  AlertTriangle,
+  Activity
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { AuthProviderSummary, ServerAuthDiscovery } from '@shared/types'
@@ -119,6 +121,15 @@ export default function Login() {
   )
   const externalProviders =
     discovery?.providers.filter((p) => p.enabled && p.type !== 'local') ?? []
+  // Server returned discovery (or our LOCAL_ONLY_FALLBACK) but no enabled
+  // providers — typically means the SASO server has no providers seeded
+  // (fresh DB, Phinx migrations not applied). Hitting /m/setup without a
+  // provider_id lands on the "Internal Server Error during mobile setup"
+  // page, so disable the browser-handoff buttons and steer the user to
+  // the readiness diagnostic instead.
+  const providersEmpty =
+    discovery !== null &&
+    discovery.providers.filter((p) => p.enabled).length === 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary-900 to-primary-700 flex items-center justify-center p-4">
@@ -146,6 +157,26 @@ export default function Login() {
             プロバイダー情報の取得に失敗しました ({discoveryError})。ユーザー名/パスワードログインのみ利用できます。
           </div>
         )}
+        {providersEmpty && (
+          <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-lg p-3 mb-4 text-sm space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                サーバーに認証プロバイダーが登録されていません。
+                <span className="block mt-1 text-xs text-yellow-700">
+                  設定 → 認証 → サーバー診断 を実行してください。下記の QR / ペアリングコード入力は引き続き利用できます。
+                </span>
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/settings?tab=auth&diagnose=1')}
+              className="w-full flex items-center justify-center gap-2 text-xs font-medium text-yellow-900 bg-yellow-100 hover:bg-yellow-200 py-1.5 rounded-md"
+            >
+              <Activity size={12} />
+              サーバー診断を開く
+            </button>
+          </div>
+        )}
 
         {waitingForCallback ? (
           <div className="text-center py-4">
@@ -167,8 +198,8 @@ export default function Login() {
             <SectionHeader icon={<Lock size={14} />} label="ユーザー名でログイン" />
             <button
               onClick={() => void handlePair(localProvider?.id)}
-              disabled={loading}
-              className="w-full btn-primary flex items-center justify-center gap-2 py-3 disabled:opacity-50"
+              disabled={loading || providersEmpty}
+              className="w-full btn-primary flex items-center justify-center gap-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? (
                 <Loader2 className="animate-spin" size={18} />
@@ -178,7 +209,9 @@ export default function Login() {
               ユーザー名とパスワードでログイン
             </button>
             <p className="text-xs text-gray-500">
-              ブラウザで SASO のログイン画面が開き、認証後にアプリへ戻ります。
+              {providersEmpty
+                ? 'サーバー側のプロバイダー設定が未完了のため、この方法は現在利用できません。'
+                : 'ブラウザで SASO のログイン画面が開き、認証後にアプリへ戻ります。'}
             </p>
 
             {/* ── 2-c. Server-configured providers ──────────────────────── */}
