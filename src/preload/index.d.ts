@@ -119,7 +119,15 @@ declare global {
         testServerUrl: (url: string) => Promise<{ success: boolean; error?: string; status?: number }>
         pair: (providerId?: number) => Promise<{ success: boolean; error?: string }>
         pairWithToken: (payload: string) => Promise<{ success: boolean; error?: string }>
+        login: (
+          username: string,
+          password: string
+        ) => Promise<{ success: boolean; error?: string; code?: string }>
         logout: () => Promise<IpcResponse<void>>
+        changePassword: (
+          currentPassword: string,
+          newPassword: string
+        ) => Promise<{ success: boolean; error?: string; code?: string }>
         getUser: () => Promise<IpcResponse<AuthUser | null>>
         getToken: () => Promise<IpcResponse<string | null>>
         onAuthCallback: (callback: (user: AuthUser | null) => void) => () => void

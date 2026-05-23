@@ -6,7 +6,10 @@ interface AuthState {
   token: string | null
   isAuthenticated: boolean
   loading: boolean
+  /** Browser-based pairing flow (QR / external provider). */
   login: () => Promise<void>
+  /** REST credential flow — POST /api/v1/auth/login. */
+  loginWithPassword: (username: string, password: string) => Promise<void>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
 }
@@ -41,6 +44,13 @@ export const useAuth = create<AuthState>((set) => ({
     const result = await window.api.auth.pair()
     if (!result.success) {
       throw new Error(result.error || 'ペアリングに失敗しました')
+    }
+  },
+
+  loginWithPassword: async (username, password) => {
+    const result = await window.api.auth.login(username, password)
+    if (!result.success) {
+      throw new Error(result.error || 'ログインに失敗しました')
     }
   },
 
