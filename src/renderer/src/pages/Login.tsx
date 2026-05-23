@@ -21,13 +21,13 @@ import ReadinessPanel from '../components/ReadinessPanel'
 ///
 /// Lays out three independent sections after fetching
 /// `GET /api/v1/auth/providers` from the configured SASO server:
-///   1. Username / password — rendered as a "ログイン" button that opens the
-///      server's `/m/setup?provider_id=<local-id>` flow in the system
-///      browser. The browser shows `/auth/start/{id}` so the user types
-///      credentials there (avoids the app shipping with a credential POST
-///      against a non-existent JWT-issuing endpoint).
+///   1. Username / password — submits credentials directly to
+///      `POST /api/v1/auth/login`, which mints the same JWT pair as
+///      /api/v1/mobile/connect (see docs/api/auth-endpoints.md). No
+///      browser hand-off needed — the form lives inline.
 ///   2. Server-configured providers — one button per enabled non-local
-///      provider, same browser hand-off but scoped to that provider.
+///      provider, opening `/m/setup?provider_id=…` in the system browser
+///      because external IdPs need their own session.
 ///   3. QR code / manual token — the existing pairing flow.
 export default function Login() {
   const [loading, setLoading] = useState(false)
@@ -38,6 +38,8 @@ export default function Login() {
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
   const [manualMode, setManualMode] = useState(false)
   const [manualPayload, setManualPayload] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [showDiagnose, setShowDiagnose] = useState(false)
   const { isAuthenticated, checkAuth } = useAuth()
   const navigate = useNavigate()
@@ -118,9 +120,33 @@ export default function Login() {
     }
   }
 
-  const localProvider = discovery?.providers.find(
-    (p) => p.enabled && p.type === 'local'
-  )
+  const handlePasswordLogin = async (
+    event: React.FormEvent<HTMLFormElement>
+  ): Promise<void> => {
+    event.preventDefault()
+    if (!username.trim() || !password) return
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await window.api.auth.login(username.trim(), password)
+      if (!result.success) {
+        setError(result.error || 'ログインに失敗しました')
+      } else {
+        setPassword('')
+        await checkAuth()
+        navigate('/', { replace: true })
+      }
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Local provider is no longer needed for routing — POST /api/v1/auth/login
+  // implicitly targets the local provider on the server side. We only filter
+  // the discovery list down to the external IdPs that still require the
+  // /m/setup browser hand-off.
   const externalProviders =
     discovery?.providers.filter((p) => p.enabled && p.type !== 'local') ?? []
   // Server returned discovery (or our LOCAL_ONLY_FALLBACK) but no enabled
@@ -200,24 +226,47 @@ export default function Login() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* ── 2-a. Username / password (Local provider) ────────────── */}
+            {/* ── 2-a. Username / password (Local provider) ──────────────
+                Inline form posts to POST /api/v1/auth/login. This replaces
+                the legacy browser hand-off to /m/setup?provider_id=<local>,
+                tracked by docs/api/auth-endpoints.md migration roadmap. */}
             <SectionHeader icon={<Lock size={14} />} label="ユーザー名でログイン" />
-            <button
-              onClick={() => void handlePair(localProvider?.id)}
-              disabled={loading || providersEmpty}
-              className="w-full btn-primary flex items-center justify-center gap-2 py-3 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? (
-                <Loader2 className="animate-spin" size={18} />
-              ) : (
-                <ExternalLink size={18} />
-              )}
-              ユーザー名とパスワードでログイン
-            </button>
+            <form onSubmit={(e) => void handlePasswordLogin(e)} className="space-y-2">
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="ユーザー名"
+                autoComplete="username"
+                disabled={loading || providersEmpty}
+                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="パスワード"
+                autoComplete="current-password"
+                disabled={loading || providersEmpty}
+                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:bg-gray-50 disabled:text-gray-400"
+              />
+              <button
+                type="submit"
+                disabled={loading || providersEmpty || !username.trim() || !password}
+                className="w-full btn-primary flex items-center justify-center gap-2 py-2.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <Loader2 className="animate-spin" size={18} />
+                ) : (
+                  <LogIn size={18} />
+                )}
+                ログイン
+              </button>
+            </form>
             <p className="text-xs text-gray-500">
               {providersEmpty
                 ? 'サーバー側のプロバイダー設定が未完了のため、この方法は現在利用できません。'
-                : 'ブラウザで SASO のログイン画面が開き、認証後にアプリへ戻ります。'}
+                : 'ユーザー名とパスワードを SASO サーバーに直接送信します。'}
             </p>
 
             {/* ── 2-c. Server-configured providers ──────────────────────── */}
@@ -298,7 +347,7 @@ export default function Login() {
         )}
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          /api/v1/mobile/connect (JWT bearer)
+          /api/v1/auth/login · /api/v1/mobile/connect (JWT bearer)
         </p>
       </div>
     </div>

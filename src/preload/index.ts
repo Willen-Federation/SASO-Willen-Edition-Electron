@@ -82,7 +82,11 @@ const api = {
     testServerUrl: (url: string) => ipcRenderer.invoke('auth:testServerUrl', url),
     pair: (providerId?: number) => ipcRenderer.invoke('auth:pair', providerId),
     pairWithToken: (payload: string) => ipcRenderer.invoke('auth:pairWithToken', payload),
+    login: (username: string, password: string) =>
+      ipcRenderer.invoke('auth:login', username, password),
     logout: () => ipcRenderer.invoke('auth:logout'),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      ipcRenderer.invoke('auth:changePassword', currentPassword, newPassword),
     getUser: () => ipcRenderer.invoke('auth:getUser'),
     getToken: () => ipcRenderer.invoke('auth:getToken'),
     onAuthCallback: (callback: (user: unknown) => void) => {

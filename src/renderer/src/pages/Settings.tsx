@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Save, Eye, EyeOff, CheckCircle, ExternalLink, RefreshCw, Trash2, AlertTriangle, CloudOff } from 'lucide-react'
+import { Save, Eye, EyeOff, CheckCircle, ExternalLink, RefreshCw, Trash2, AlertTriangle, CloudOff, KeyRound } from 'lucide-react'
 import { useFeatureFlags } from '../stores/useFeatureFlags'
 import { useSyncQueue } from '../stores/useSyncQueue'
 import ReadinessPanel from '../components/ReadinessPanel'
@@ -132,6 +132,115 @@ function DeviceInfoSection({ serverUrl }: { serverUrl: string }) {
       <p className="text-xs text-gray-400">
         他端末の一覧や失効など、ペアリング済みデバイスの管理は SASO サーバーの MyPage で行います。
       </p>
+    </div>
+  )
+}
+
+function PasswordChangeSection() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [status, setStatus] = useState<'idle' | 'ok' | 'err'>('idle')
+  const [message, setMessage] = useState<string>('')
+
+  const passwordsMatch = next.length > 0 && next === confirm
+  // Mirror SASO-AUTH-1013 policy from docs/api/auth-endpoints.md so the user
+  // can fix issues before the round-trip. The server is still authoritative.
+  const lengthOk = next.length >= 8 && next.length <= 64
+  const charsOk = /^[A-Za-z0-9_-]*$/.test(next)
+  const differsFromCurrent = next.length === 0 || next !== current
+  const canSubmit =
+    !submitting &&
+    current.length > 0 &&
+    passwordsMatch &&
+    lengthOk &&
+    charsOk &&
+    differsFromCurrent
+
+  const submit = async () => {
+    setSubmitting(true)
+    setStatus('idle')
+    setMessage('')
+    const result = await window.api.auth.changePassword(current, next)
+    setSubmitting(false)
+    if (result.success) {
+      setStatus('ok')
+      setMessage('パスワードを変更しました。他端末のセッションは無効化されました。')
+      setCurrent('')
+      setNext('')
+      setConfirm('')
+    } else {
+      setStatus('err')
+      setMessage(result.error || 'パスワード変更に失敗しました')
+    }
+  }
+
+  return (
+    <div className="border-t border-gray-100 pt-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <KeyRound size={14} className="text-gray-500" />
+        <p className="text-sm font-medium text-gray-700">パスワードを変更</p>
+      </div>
+      <p className="text-xs text-gray-500">
+        現在のパスワードと新しいパスワード (8〜64文字、半角英数 / _ / -) を入力してください。
+        変更後、このデバイス以外のセッションは自動的に無効化されます。
+      </p>
+      <div className="space-y-2">
+        <input
+          type="password"
+          value={current}
+          onChange={(e) => setCurrent(e.target.value)}
+          placeholder="現在のパスワード"
+          autoComplete="current-password"
+          disabled={submitting}
+          className="input-field text-sm"
+        />
+        <input
+          type="password"
+          value={next}
+          onChange={(e) => setNext(e.target.value)}
+          placeholder="新しいパスワード"
+          autoComplete="new-password"
+          disabled={submitting}
+          className="input-field text-sm"
+        />
+        <input
+          type="password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="新しいパスワード (確認)"
+          autoComplete="new-password"
+          disabled={submitting}
+          className="input-field text-sm"
+        />
+      </div>
+      {next.length > 0 && !lengthOk && (
+        <p className="text-xs text-yellow-700">8〜64文字で入力してください</p>
+      )}
+      {next.length > 0 && !charsOk && (
+        <p className="text-xs text-yellow-700">使用できるのは半角英数 / アンダースコア / ハイフンのみです</p>
+      )}
+      {next.length > 0 && !differsFromCurrent && (
+        <p className="text-xs text-yellow-700">新しいパスワードは現在のパスワードと異なる必要があります</p>
+      )}
+      {confirm.length > 0 && !passwordsMatch && (
+        <p className="text-xs text-yellow-700">新しいパスワードと確認が一致しません</p>
+      )}
+      <button
+        onClick={() => void submit()}
+        disabled={!canSubmit}
+        className="btn-primary text-sm flex items-center gap-2 disabled:opacity-50"
+      >
+        <KeyRound size={14} />
+        {submitting ? '変更中…' : 'パスワードを変更'}
+      </button>
+      {status === 'ok' && (
+        <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded p-2">{message}</p>
+      )}
+      {status === 'err' && (
+        <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">{message}</p>
+      )}
     </div>
   )
 }
@@ -493,6 +602,7 @@ export default function Settings() {
               <ReadinessPanel autoRun={searchParams.get('diagnose') === '1'} />
             </div>
             <DeviceInfoSection serverUrl={settings.sasoServerUrl} />
+            <PasswordChangeSection />
             <FeatureFlagsSection />
           </div>
         )}

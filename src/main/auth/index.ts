@@ -186,6 +186,164 @@ async function exchangePairingForJwt(
   return data
 }
 
+// ---------------------------------------------------------------------------
+// REST username/password flow — POST /api/v1/auth/login
+// ---------------------------------------------------------------------------
+//
+// Issues the same `{access_token, refresh_token, ...}` shape as
+// /api/v1/mobile/connect, but accepts credentials directly so the Electron
+// app does not have to hand the user off to a browser. Migration tracker:
+// docs/api/auth-endpoints.md — replaces /auth/start/ form posting.
+
+interface ProblemDetails {
+  type?: string
+  title?: string
+  status?: number
+  detail?: string
+  code?: string
+  traceId?: string
+}
+
+async function parseProblemJson(response: Response): Promise<ProblemDetails> {
+  try {
+    const text = await response.text()
+    if (!text) return {}
+    const parsed = JSON.parse(text) as unknown
+    if (parsed && typeof parsed === 'object') return parsed as ProblemDetails
+  } catch {
+    // not JSON — fall through
+  }
+  return {}
+}
+
+function loginErrorMessage(status: number, problem: ProblemDetails): string {
+  // Map SASO-AUTH codes from docs/api/auth-endpoints.md to Japanese strings
+  // the renderer can show verbatim. Fall back to detail / HTTP status if a
+  // future code reaches us.
+  switch (problem.code) {
+    case 'SASO-AUTH-1001':
+      return 'ユーザー名またはパスワードが正しくありません'
+    case 'SASO-AUTH-1009':
+      return 'このアカウントは管理者によりロックされています'
+    case 'SASO-AUTH-1010':
+      return '試行回数が上限を超えました。しばらく待ってから再度お試しください'
+    case 'SASO-AUTH-1011':
+      return 'リクエスト内容が正しくありません'
+    case 'SASO-AUTH-1012':
+      return '現在のパスワードが一致しません'
+    case 'SASO-AUTH-1013':
+      return '新しいパスワードはポリシーを満たしていません (8〜64文字、半角英数 / _ / -、現在のパスワードと異なる必要があります)'
+    default:
+      return problem.detail || `HTTP ${status}`
+  }
+}
+
+async function loginWithPassword(
+  sasoServerUrl: string,
+  username: string,
+  password: string,
+  deviceName: string
+): Promise<{ success: true; token: StoredToken } | { success: false; error: string; code?: string }> {
+  if (!sasoServerUrl) {
+    return { success: false, error: 'SASOサーバーURLが設定されていません' }
+  }
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/login`
+  let response: Response
+  try {
+    response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ username, password, deviceName })
+    })
+  } catch (err) {
+    const message =
+      (err as Error).name === 'AbortError'
+        ? `タイムアウト (${PUBLIC_FETCH_TIMEOUT_MS / 1000}秒)`
+        : (err as Error).message
+    return { success: false, error: `通信エラー: ${message}` }
+  }
+
+  if (!response.ok) {
+    const problem = await parseProblemJson(response)
+    return { success: false, error: loginErrorMessage(response.status, problem), code: problem.code }
+  }
+
+  const data = (await response.json()) as StoredToken
+  if (!data.expires_at && data.expires_in) {
+    data.expires_at = new Date(Date.now() + data.expires_in * 1000).toISOString()
+  }
+  return { success: true, token: data }
+}
+
+// ---------------------------------------------------------------------------
+// REST logout — POST /api/v1/auth/logout (revokes server-side refresh token)
+// ---------------------------------------------------------------------------
+//
+// Best-effort: if the server is unreachable or the access token has already
+// expired, we still clear the local token so the user can sign back in.
+
+async function revokeServerSession(sasoServerUrl: string, accessToken: string): Promise<void> {
+  if (!sasoServerUrl || !accessToken) return
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/logout`
+  try {
+    await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json'
+      }
+    })
+  } catch {
+    // Network failure is non-fatal — the refresh token will expire on its own.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// REST password change — POST /api/v1/auth/password
+// ---------------------------------------------------------------------------
+
+async function changePassword(
+  sasoServerUrl: string,
+  accessToken: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: true } | { success: false; error: string; code?: string }> {
+  if (!sasoServerUrl) {
+    return { success: false, error: 'SASOサーバーURLが設定されていません' }
+  }
+  if (!accessToken) {
+    return { success: false, error: '未認証です。再度ログインしてください' }
+  }
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/password`
+  let response: Response
+  try {
+    response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Authorization: `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({ currentPassword, newPassword })
+    })
+  } catch (err) {
+    const message =
+      (err as Error).name === 'AbortError'
+        ? `タイムアウト (${PUBLIC_FETCH_TIMEOUT_MS / 1000}秒)`
+        : (err as Error).message
+    return { success: false, error: `通信エラー: ${message}` }
+  }
+
+  if (!response.ok) {
+    const problem = await parseProblemJson(response)
+    return { success: false, error: loginErrorMessage(response.status, problem), code: problem.code }
+  }
+  return { success: true }
+}
+
 export async function refreshIfNeeded(sasoServerUrl: string): Promise<StoredToken | null> {
   const token = getToken()
   if (!token || !token.refresh_token) return token
@@ -438,8 +596,35 @@ export function registerAuthHandlers(mainWindow: BrowserWindow): void {
     }
   })
 
+  ipcMain.handle(
+    'auth:login',
+    async (_event, username: string, password: string) => {
+      try {
+        const sasoServerUrl = getSetting('sasoServerUrl') || ''
+        const deviceName = `${app.getName()} (${require('os').hostname()})`
+        const result = await loginWithPassword(sasoServerUrl, username, password, deviceName)
+        if (!result.success) {
+          return { success: false, error: result.error, code: result.code }
+        }
+        saveToken(result.token)
+        mainWindow.webContents.send('auth:stateChanged', getUser())
+        return { success: true }
+      } catch (error) {
+        return { success: false, error: (error as Error).message }
+      }
+    }
+  )
+
   ipcMain.handle('auth:logout', async () => {
     try {
+      // Best-effort server-side revocation. If it fails (offline, expired
+      // token, server down) we still clear the local token so the user can
+      // sign back in — the refresh token will age out on its own.
+      const sasoServerUrl = getSetting('sasoServerUrl') || ''
+      const token = getToken()
+      if (sasoServerUrl && token?.access_token) {
+        await revokeServerSession(sasoServerUrl, token.access_token)
+      }
       clearToken()
       mainWindow.webContents.send('auth:stateChanged', null)
       return { success: true }
@@ -447,6 +632,31 @@ export function registerAuthHandlers(mainWindow: BrowserWindow): void {
       return { success: false, error: (error as Error).message }
     }
   })
+
+  ipcMain.handle(
+    'auth:changePassword',
+    async (_event, currentPassword: string, newPassword: string) => {
+      try {
+        const sasoServerUrl = getSetting('sasoServerUrl') || ''
+        // Refresh first so we don't fail with a stale access token on an
+        // otherwise valid session.
+        if (sasoServerUrl) await refreshIfNeeded(sasoServerUrl)
+        const token = getToken()
+        if (!token?.access_token) {
+          return { success: false, error: '未認証です。再度ログインしてください' }
+        }
+        const result = await changePassword(
+          sasoServerUrl,
+          token.access_token,
+          currentPassword,
+          newPassword
+        )
+        return result
+      } catch (error) {
+        return { success: false, error: (error as Error).message }
+      }
+    }
+  )
 
   ipcMain.handle('auth:getUser', async () => {
     try {
