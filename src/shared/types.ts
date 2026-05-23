@@ -384,3 +384,23 @@ export interface PendingSyncOp {
   lastError: string | null
   status: 'pending' | 'conflict' | 'failed'
 }
+
+// ── Readiness diagnostics (GET /api/v1/health/readiness) ──────────────────────
+// Matches the OpenAPI ReadinessStatus / ReadinessCheck schemas. Per the spec
+// the body is identical on 200 and 503 — only the HTTP status (and the
+// derived `status` enum) differ — so the renderer treats this as data either
+// way and inspects each probe to render a per-row badge.
+
+export type ReadinessProbeStatus = 'ok' | 'missing' | 'failed'
+
+export interface ReadinessCheck {
+  name: string
+  status: ReadinessProbeStatus
+  detail?: string | null
+}
+
+export interface ReadinessStatus {
+  status: 'ready' | 'degraded'
+  checks: ReadinessCheck[]
+  time: string
+}

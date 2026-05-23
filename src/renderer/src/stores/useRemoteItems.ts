@@ -26,6 +26,10 @@ interface RemoteItemsState {
   error: string | null
   info: string | null
   unauthorized: boolean
+  /// Non-null when the most recent failure carried an `SASO-INFRA-*` problem
+  /// code (e.g. SASO-INFRA-9001 from `/items` on an un-migrated server).
+  /// The renderer renders a "サーバー診断を実行" CTA when this is set.
+  infraIssue: { code: string; status?: number } | null
   lastQuery: ListQuery
   categories: RemoteCategory[]
   categoriesLoaded: boolean
@@ -41,6 +45,11 @@ interface RemoteItemsState {
   loadLocations: () => Promise<void>
   clearError: () => void
   clearInfo: () => void
+  clearInfraIssue: () => void
+}
+
+function detectInfra(code?: string): { code: string } | null {
+  return code && code.startsWith('SASO-INFRA-') ? { code } : null
 }
 
 function newIdempotencyKey(): string {
@@ -59,6 +68,7 @@ export const useRemoteItems = create<RemoteItemsState>((set, get) => ({
   error: null,
   info: null,
   unauthorized: false,
+  infraIssue: null,
   lastQuery: {},
   categories: [],
   categoriesLoaded: false,
@@ -66,7 +76,7 @@ export const useRemoteItems = create<RemoteItemsState>((set, get) => ({
   locationsLoaded: false,
 
   loadPage: async (query = {}) => {
-    set({ loading: true, error: null, unauthorized: false, lastQuery: query })
+    set({ loading: true, error: null, unauthorized: false, infraIssue: null, lastQuery: query })
     const result = await window.api.sync.itemsList(query)
     if (result.success) {
       set({
@@ -76,10 +86,12 @@ export const useRemoteItems = create<RemoteItemsState>((set, get) => ({
         loading: false
       })
     } else {
+      const infra = detectInfra(result.code)
       set({
         loading: false,
         error: result.error,
-        unauthorized: result.status === 401
+        unauthorized: result.status === 401,
+        infraIssue: infra ? { code: infra.code, status: result.status } : null
       })
     }
   },
@@ -97,10 +109,12 @@ export const useRemoteItems = create<RemoteItemsState>((set, get) => ({
         loadingMore: false
       })
     } else {
+      const infra = detectInfra(result.code)
       set({
         loadingMore: false,
         error: result.error,
-        unauthorized: result.status === 401
+        unauthorized: result.status === 401,
+        infraIssue: infra ? { code: infra.code, status: result.status } : null
       })
     }
   },
@@ -171,5 +185,6 @@ export const useRemoteItems = create<RemoteItemsState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
-  clearInfo: () => set({ info: null })
+  clearInfo: () => set({ info: null }),
+  clearInfraIssue: () => set({ infraIssue: null })
 }))

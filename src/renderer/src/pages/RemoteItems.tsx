@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, Package, Cloud, RefreshCw, Sparkles, ImagePlus } from 'lucide-react'
+import { Plus, Search, Package, Cloud, RefreshCw, Sparkles, ImagePlus, Activity } from 'lucide-react'
 import { useRemoteItems } from '../stores/useRemoteItems'
 import { useAuth } from '../stores/useAuth'
 import Modal from '../components/Modal'
@@ -77,6 +77,7 @@ export default function RemoteItems() {
     error,
     info,
     unauthorized,
+    infraIssue,
     locations,
     loadPage,
     loadMore,
@@ -85,7 +86,8 @@ export default function RemoteItems() {
     update,
     lookupBarcode,
     clearError,
-    clearInfo
+    clearInfo,
+    clearInfraIssue
   } = useRemoteItems()
 
   const [search, setSearch] = useState('')
@@ -343,7 +345,31 @@ export default function RemoteItems() {
         )}
       </div>
 
-      {error && !unauthorized && (
+      {infraIssue && (
+        <div className="flex items-start justify-between gap-3 text-yellow-800 text-sm bg-yellow-50 border border-yellow-200 p-3 rounded-lg">
+          <div className="flex-1">
+            <div className="font-medium">サーバーのスキーマが古い可能性があります ({infraIssue.code})</div>
+            <p className="text-xs mt-1 text-yellow-700">
+              `/items` 等のエンドポイントが <span className="font-mono">{infraIssue.status ?? '5xx'}</span> を返しました。
+              設定 → 認証 → サーバー診断 でどのスキーマ要素が欠落しているか確認できます。
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <button
+              onClick={() => navigate('/settings?tab=auth&diagnose=1')}
+              className="btn-secondary text-xs flex items-center gap-1"
+            >
+              <Activity size={12} />
+              診断を開く
+            </button>
+            <button onClick={clearInfraIssue} className="text-yellow-700 underline text-[10px]">
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && !unauthorized && !infraIssue && (
         <div className="flex items-start justify-between gap-3 text-red-600 text-sm bg-red-50 p-3 rounded-lg">
           <span>{error}</span>
           <button onClick={clearError} className="text-red-500 underline text-xs">

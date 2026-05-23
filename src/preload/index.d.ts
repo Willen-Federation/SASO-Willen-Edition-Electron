@@ -25,12 +25,13 @@ import type {
   BarcodeLookupResult,
   MobileConfigBundle,
   RemoteItemDraftCreated,
-  PendingSyncOp
+  PendingSyncOp,
+  ReadinessStatus
 } from '../shared/types'
 
 type SyncResult<T> =
   | { success: true; data: T }
-  | { success: false; error: string; status?: number; queued?: { id: string } }
+  | { success: false; error: string; status?: number; code?: string; queued?: { id: string } }
 
 interface CreateOrderData {
   customer_id?: string
@@ -125,6 +126,7 @@ declare global {
       }
       sync: {
         health: () => Promise<SyncResult<{ status: string; version: string; time: string }>>
+        readiness: () => Promise<SyncResult<ReadinessStatus>>
         itemsList: (
           query?: {
             q?: string
