@@ -15,6 +15,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import type { AuthProviderSummary, ServerAuthDiscovery } from '@shared/types'
 import { useAuth } from '../stores/useAuth'
+import ReadinessPanel from '../components/ReadinessPanel'
 
 /// Unified login page.
 ///
@@ -37,6 +38,7 @@ export default function Login() {
   const [discoveryError, setDiscoveryError] = useState<string | null>(null)
   const [manualMode, setManualMode] = useState(false)
   const [manualPayload, setManualPayload] = useState('')
+  const [showDiagnose, setShowDiagnose] = useState(false)
   const { isAuthenticated, checkAuth } = useAuth()
   const navigate = useNavigate()
 
@@ -164,17 +166,21 @@ export default function Login() {
               <p className="leading-relaxed">
                 サーバーに認証プロバイダーが登録されていません。
                 <span className="block mt-1 text-xs text-yellow-700">
-                  設定 → 認証 → サーバー診断 を実行してください。下記の QR / ペアリングコード入力は引き続き利用できます。
+                  下記の「サーバー診断を実行」で /health/readiness の結果を確認してください。QR / ペアリングコード入力は引き続き利用できます。
                 </span>
               </p>
             </div>
-            <button
-              onClick={() => navigate('/settings?tab=auth&diagnose=1')}
-              className="w-full flex items-center justify-center gap-2 text-xs font-medium text-yellow-900 bg-yellow-100 hover:bg-yellow-200 py-1.5 rounded-md"
-            >
-              <Activity size={12} />
-              サーバー診断を開く
-            </button>
+            {showDiagnose ? (
+              <ReadinessPanel autoRun />
+            ) : (
+              <button
+                onClick={() => setShowDiagnose(true)}
+                className="w-full flex items-center justify-center gap-2 text-xs font-medium text-yellow-900 bg-yellow-100 hover:bg-yellow-200 py-1.5 rounded-md"
+              >
+                <Activity size={12} />
+                サーバー診断を実行
+              </button>
+            )}
           </div>
         )}
 
