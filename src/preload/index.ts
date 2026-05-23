@@ -93,6 +93,7 @@ const api = {
   },
   sync: {
     health: () => ipcRenderer.invoke('sync:health'),
+    readiness: () => ipcRenderer.invoke('sync:health:readiness'),
     itemsList: (
       query?: {
         q?: string

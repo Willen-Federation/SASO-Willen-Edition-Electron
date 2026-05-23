@@ -4,10 +4,11 @@ import { basename, extname } from 'path'
 import { getSetting } from '../database'
 import { getToken, refreshIfNeeded, clearToken } from '../auth'
 import { enqueueOp } from './queue'
+import type { ReadinessStatus } from '../../shared/types'
 
 type SyncResponse<T = unknown> =
   | { success: true; data: T }
-  | { success: false; error: string; status?: number; queued?: { id: string } }
+  | { success: false; error: string; status?: number; code?: string; queued?: { id: string } }
 
 interface SyncRequestOptions {
   method?: string
@@ -131,6 +132,12 @@ async function syncRequest<T>(path: string, options: SyncRequestOptions = {}): P
       parsed && typeof parsed === 'object' && parsed !== null && 'detail' in parsed
         ? String((parsed as { detail: unknown }).detail)
         : text.slice(0, 500)
+    // Surface the RFC 7807 SASO error code so the renderer can branch on it
+    // (e.g. SASO-INFRA-9001 → suggest running the readiness diagnostics).
+    const code =
+      parsed && typeof parsed === 'object' && parsed !== null && 'code' in parsed
+        ? String((parsed as { code: unknown }).code)
+        : undefined
     const error = `HTTP ${response.status}: ${detail || response.statusText}`
     if (shouldQueue(options.queueOpType, response.status) && options.idempotencyKey) {
       const queued = enqueueOp({
@@ -141,16 +148,68 @@ async function syncRequest<T>(path: string, options: SyncRequestOptions = {}): P
         idempotencyKey: options.idempotencyKey,
         lastError: error
       })
-      return { success: false, status: response.status, error: `${error} (オフラインキューに保存)`, queued: { id: queued.id } }
+      return {
+        success: false,
+        status: response.status,
+        code,
+        error: `${error} (オフラインキューに保存)`,
+        queued: { id: queued.id }
+      }
     }
-    return { success: false, status: response.status, error }
+    return { success: false, status: response.status, code, error }
   }
 
   return { success: true, data: parsed as T }
 }
 
+// Readiness is intentionally not authenticated. Per OpenAPI:
+//   * the endpoint carries no `security:` block, so no Bearer required
+//   * both 200 and 503 share the same body — only the HTTP status differs
+// We surface the parsed body on either, so the renderer can render
+// per-probe outcomes regardless of overall status.
+async function getReadiness(): Promise<SyncResponse<ReadinessStatus>> {
+  const sasoServerUrl = getSetting('sasoServerUrl') || ''
+  if (!sasoServerUrl) {
+    return { success: false, error: 'SASOサーバーURLが未設定です' }
+  }
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/health/readiness`
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 10_000)
+  let response: Response
+  try {
+    response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal
+    })
+  } catch (err) {
+    const msg = (err as Error).name === 'AbortError' ? 'タイムアウト (10秒)' : (err as Error).message
+    return { success: false, error: `通信エラー: ${msg}` }
+  } finally {
+    clearTimeout(timer)
+  }
+
+  const text = await response.text()
+  let parsed: ReadinessStatus | null = null
+  try {
+    parsed = text.length > 0 ? (JSON.parse(text) as ReadinessStatus) : null
+  } catch {
+    // fall through
+  }
+
+  if (!parsed) {
+    return {
+      success: false,
+      status: response.status,
+      error: `HTTP ${response.status}: ${text.slice(0, 300) || response.statusText}`
+    }
+  }
+  // 200 → ready, 503 → degraded — both shapes are valid data.
+  return { success: true, data: parsed }
+}
+
 export function registerSyncHandlers(): void {
   ipcMain.handle('sync:health', async () => syncRequest('/health'))
+  ipcMain.handle('sync:health:readiness', async () => getReadiness())
 
   ipcMain.handle(
     'sync:items:list',
