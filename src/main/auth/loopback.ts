@@ -100,10 +100,16 @@ export async function awaitPairingCallback(
   }
 
   // Close the server shortly after the promise settles so the success page
-  // has time to load.
-  promise.finally(() => {
+  // has time to load. Use `.then(cb, cb)` rather than `.finally(cb)` because
+  // `.finally()` returns a *new* promise that re-throws the rejection — and
+  // since nothing catches that derived promise, Node would fire
+  // `unhandledRejection` on every error path (timeout, state mismatch,
+  // missing token) even though the caller's try/catch already handles the
+  // original promise.
+  const scheduleDispose = (): void => {
     setTimeout(dispose, 500)
-  })
+  }
+  promise.then(scheduleDispose, scheduleDispose)
 
   return { port, promise, dispose }
 }
