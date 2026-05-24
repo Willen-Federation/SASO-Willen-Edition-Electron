@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { AddressInfo } from 'net'
+import { timingSafeEqual } from 'crypto'
 
 interface PairingResult {
   token: string
@@ -8,6 +9,20 @@ interface PairingResult {
 
 interface AwaitOptions {
   timeoutMs?: number
+}
+
+// Hard cap on the pairing token we'll accept from the loopback POST. The
+// real tokens are short (a few hundred bytes JWT-style), so anything bigger
+// is either a misconfiguration or an attempt to wedge us with a huge body.
+const MAX_TOKEN_LENGTH = 4096
+
+// Constant-time compare so a same-origin attacker can't infer the state
+// secret by timing repeated /submit-token guesses. Returns false on any
+// length mismatch (timingSafeEqual throws otherwise).
+function safeEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
+  if (a.length !== b.length) return false
+  return timingSafeEqual(Buffer.from(a, 'utf-8'), Buffer.from(b, 'utf-8'))
 }
 
 /**
@@ -53,15 +68,15 @@ export async function awaitPairingCallback(
           const token = params.get('token') || ''
           const state = params.get('state') || ''
           const server = params.get('server') || ''
-          if (state !== expectedState) {
+          if (!safeEqual(state, expectedState)) {
             res.writeHead(400, { 'Content-Type': 'text/plain' })
             res.end('state mismatch')
             rejectOuter(new Error('state mismatch — possible CSRF'))
             return
           }
-          if (!token) {
+          if (!token || token.length > MAX_TOKEN_LENGTH) {
             res.writeHead(400, { 'Content-Type': 'text/plain' })
-            res.end('missing token')
+            res.end('missing or oversized token')
             rejectOuter(new Error('no pairing token in callback'))
             return
           }

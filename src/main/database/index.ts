@@ -2,6 +2,7 @@ import Database, { type Database as DatabaseType } from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { v4 as uuidv4 } from 'uuid'
+import { encryptString, decryptString } from '../secure-store'
 import type {
   Item,
   Color,
@@ -261,10 +262,21 @@ export function deleteItem(id: string): boolean {
   return result.changes > 0
 }
 
+// Escape LIKE wildcards so a `%` / `_` in the user's query is matched
+// literally — otherwise an empty input ('') matches every row and a `%`
+// matches everything regardless of the rest of the term.
+function escapeLikePattern(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
+}
+
 export function searchItems(query: string): Item[] {
-  const q = `%${query}%`
+  const q = `%${escapeLikePattern(query)}%`
   const rows = db.prepare(
-    `SELECT * FROM items WHERE name LIKE ? OR serial LIKE ? OR id LIKE ? ORDER BY created_at DESC`
+    `SELECT * FROM items
+       WHERE name LIKE ? ESCAPE '\\'
+          OR serial LIKE ? ESCAPE '\\'
+          OR id LIKE ? ESCAPE '\\'
+       ORDER BY created_at DESC`
   ).all(q, q, q) as Record<string, unknown>[]
   return rows.map(rowToItem)
 }
@@ -392,8 +404,8 @@ export function getFeatureCurrentQuantity(fullCode: string): number {
 export function searchFeaturesByBarcode(barcode: string): Feature[] {
   const exact = getFeature(barcode)
   if (exact) return [exact]
-  const q = `${barcode}%`
-  return db.prepare(buildFeatureQuery('WHERE f.full_code LIKE ?')).all(q) as Feature[]
+  const q = `${escapeLikePattern(barcode)}%`
+  return db.prepare(buildFeatureQuery("WHERE f.full_code LIKE ? ESCAPE '\\'")).all(q) as Feature[]
 }
 
 // ── ItemVars ──────────────────────────────────────────────────────────────────
@@ -645,19 +657,42 @@ export function completeOrder(id: string): SalesOrder | null {
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
+//
+// AI provider API keys are kept in the same `settings` table as
+// non-sensitive values (taxRate, currency, …) because the renderer's
+// Settings.tsx already speaks the generic settings:get / settings:set
+// surface. To avoid widening that surface with a "secrets" channel, we
+// transparently encrypt these specific keys at write time and decrypt at
+// read time. Any value already stored as plaintext (pre-upgrade) is
+// returned verbatim by decryptString, so existing installs keep working
+// and get re-encrypted the next time the user saves.
+const SECRET_SETTING_KEYS = new Set<string>([
+  'claudeApiKey',
+  'openaiApiKey',
+  'geminiApiKey'
+])
+
+function isSecretSettingKey(key: string): boolean {
+  return SECRET_SETTING_KEYS.has(key)
+}
 
 export function getSetting(key: string): string | null {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
-  return row?.value ?? null
+  if (!row) return null
+  if (isSecretSettingKey(key)) return decryptString(row.value)
+  return row.value
 }
 
 export function setSetting(key: string, value: string): void {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
+  const stored = isSecretSettingKey(key) ? encryptString(value) : value
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, stored)
 }
 
 export function getAllSettings(): Record<string, string> {
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[]
-  return Object.fromEntries(rows.map((r) => [r.key, r.value]))
+  return Object.fromEntries(
+    rows.map((r) => [r.key, isSecretSettingKey(r.key) ? decryptString(r.value) : r.value])
+  )
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────

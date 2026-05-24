@@ -63,13 +63,25 @@ export default function Login() {
 
   useEffect(() => {
     if (!sasoServerUrl) return
+    // Each URL change starts a fresh discovery attempt. Older in-flight
+    // responses get ignored via the `cancelled` flag so they can't
+    // overwrite the latest result. (We can't use AbortController against
+    // the IPC bridge — the main-process fetch already has its own
+    // timeout in auth/index.ts.)
+    let cancelled = false
+    setDiscovery(null)
+    setDiscoveryError(null)
     void window.api.auth.discoverProviders().then((res) => {
+      if (cancelled) return
       if (res.success && res.data) {
         setDiscovery(res.data)
       } else {
         setDiscoveryError(res.error || 'プロバイダー情報を取得できませんでした')
       }
     })
+    return () => {
+      cancelled = true
+    }
   }, [sasoServerUrl])
 
   useEffect(() => {
@@ -149,13 +161,12 @@ export default function Login() {
   // /m/setup browser hand-off.
   const externalProviders =
     discovery?.providers.filter((p) => p.enabled && p.type !== 'local') ?? []
-  // Server returned discovery (or our LOCAL_ONLY_FALLBACK) but no enabled
-  // providers — typically means the SASO server has no providers seeded
-  // (fresh DB, Phinx migrations not applied). Hitting /m/setup without a
-  // provider_id lands on the "Internal Server Error during mobile setup"
-  // page, so disable the browser-handoff buttons and steer the user to
-  // the readiness diagnostic instead.
+  // "Server says it has no providers configured." Only true when discovery
+  // actually completed; on a network failure we leave the form enabled so
+  // the user can still attempt POST /api/v1/auth/login (which doesn't
+  // depend on the discovery endpoint).
   const providersEmpty =
+    discoveryError === null &&
     discovery !== null &&
     discovery.providers.filter((p) => p.enabled).length === 0
 
