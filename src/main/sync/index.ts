@@ -6,6 +6,17 @@ import { getToken, refreshIfNeeded, clearToken } from '../auth'
 import { enqueueOp } from './queue'
 import type { ReadinessStatus } from '../../shared/types'
 
+// Scrub credential-shaped substrings from raw server responses before they
+// land in the renderer or the offline-queue's last_error column. A 5xx
+// from a downstream service occasionally echoes the inbound headers in
+// its body — we don't want bearer tokens in screenshots.
+const SENSITIVE_FIELD_RE =
+  /("?\b(?:password|passwd|secret|token|access_token|refresh_token|api[_-]?key|authorization)\b"?\s*[:=]\s*)("[^"]*"|'[^']*'|[^,\s}]+)/gi
+
+function redactSensitive(value: string): string {
+  return value.replace(SENSITIVE_FIELD_RE, '$1"[REDACTED]"')
+}
+
 type SyncResponse<T = unknown> =
   | { success: true; data: T }
   | { success: false; error: string; status?: number; code?: string; queued?: { id: string } }
@@ -128,10 +139,11 @@ async function syncRequest<T>(path: string, options: SyncRequestOptions = {}): P
   }
 
   if (!response.ok) {
-    const detail =
+    const rawDetail =
       parsed && typeof parsed === 'object' && parsed !== null && 'detail' in parsed
         ? String((parsed as { detail: unknown }).detail)
         : text.slice(0, 500)
+    const detail = redactSensitive(rawDetail)
     // Surface the RFC 7807 SASO error code so the renderer can branch on it
     // (e.g. SASO-INFRA-9001 → suggest running the readiness diagnostics).
     const code =
@@ -376,10 +388,11 @@ async function uploadDraft(
   }
 
   if (!response.ok) {
-    const detail =
+    const rawDetail =
       parsed && typeof parsed === 'object' && parsed !== null && 'detail' in parsed
         ? String((parsed as { detail: unknown }).detail)
         : text.slice(0, 500)
+    const detail = redactSensitive(rawDetail)
     return {
       success: false,
       status: response.status,

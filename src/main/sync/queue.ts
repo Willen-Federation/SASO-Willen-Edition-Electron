@@ -4,6 +4,23 @@ import { db, getSetting } from '../database'
 import { getToken, refreshIfNeeded, clearToken } from '../auth'
 import type { PendingSyncOp } from '../../shared/types'
 
+// Crude but effective: scrub anything that looks like a credential from a
+// raw server response before we persist it in `pending_sync_ops.last_error`
+// and surface it to the renderer. SASO's RFC 7807 bodies normally only
+// carry `detail`/`code`, but a 500 from a downstream service can leak
+// stack traces with auth headers embedded.
+const SENSITIVE_FIELD_RE =
+  /("?\b(?:password|passwd|secret|token|access_token|refresh_token|api[_-]?key|authorization)\b"?\s*[:=]\s*)("[^"]*"|'[^']*'|[^,\s}]+)/gi
+
+function redactSensitive(value: string): string {
+  return value.replace(SENSITIVE_FIELD_RE, '$1"[REDACTED]"')
+}
+
+// Idempotency keys are minted via uuidv4 in the renderer. Validate the
+// shape before we trust them for replay so a corrupted DB row can't push
+// a forged header to the server.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 interface PendingRow {
   id: string
   op_type: string
@@ -119,6 +136,13 @@ function normalizeServerUrl(raw: string): string {
 }
 
 async function replayOne(op: PendingSyncOp, serverUrl: string, accessToken: string): Promise<{ status: number; ok: boolean; detail?: string }> {
+  if (!UUID_RE.test(op.idempotencyKey)) {
+    return {
+      status: 0,
+      ok: false,
+      detail: '不正な Idempotency-Key (キュー行が破損している可能性)'
+    }
+  }
   const url = `${normalizeServerUrl(serverUrl)}/api/v1${op.endpoint}`
   const init: RequestInit = {
     method: op.method,
@@ -137,14 +161,14 @@ async function replayOne(op: PendingSyncOp, serverUrl: string, accessToken: stri
     return { status: 0, ok: false, detail: `通信エラー: ${(err as Error).message}` }
   }
   const text = await response.text()
-  let detail = text.slice(0, 300)
+  let detail = redactSensitive(text.slice(0, 300))
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>
     if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
-      detail = String((parsed as { detail: unknown }).detail)
+      detail = redactSensitive(String((parsed as { detail: unknown }).detail))
     }
   } catch {
-    // raw text
+    // raw text — keep redacted slice
   }
   return { status: response.status, ok: response.ok, detail }
 }

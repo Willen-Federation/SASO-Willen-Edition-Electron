@@ -2,9 +2,10 @@ import { shell, BrowserWindow, ipcMain } from 'electron'
 import { randomBytes } from 'crypto'
 import { join } from 'path'
 import { app } from 'electron'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, chmodSync } from 'fs'
 import { awaitPairingCallback } from './loopback'
 import { getSetting } from '../database'
+import { encryptString, decryptString } from '../secure-store'
 import type {
   AuthProviderSummary,
   AuthProviderType,
@@ -35,20 +36,63 @@ function getAuthFilePath(): string {
   return join(app.getPath('userData'), 'auth.json')
 }
 
+// On-disk envelope: the access/refresh token live inside `payload` which is
+// safeStorage-encrypted whenever the OS keyring is available. Metadata
+// stays in cleartext so future tooling can inspect provenance without
+// unlocking. Legacy installs wrote the StoredToken directly under `token`;
+// we detect and migrate that on read.
+interface OnDiskAuth {
+  version?: number
+  payload?: string
+  token?: StoredToken | null
+}
+
+const AUTH_FILE_VERSION = 2
+
 function readAuthData(): AuthData {
   try {
     const path = getAuthFilePath()
-    if (existsSync(path)) {
-      return JSON.parse(readFileSync(path, 'utf-8')) as AuthData
+    if (!existsSync(path)) return { token: null }
+    const raw = JSON.parse(readFileSync(path, 'utf-8')) as OnDiskAuth
+    if (raw.version === AUTH_FILE_VERSION && typeof raw.payload === 'string') {
+      const decoded = decryptString(raw.payload)
+      if (!decoded) return { token: null }
+      return { token: JSON.parse(decoded) as StoredToken | null }
+    }
+    if (raw.token !== undefined) {
+      // Legacy v1 — re-write at rest so the next read is encrypted. Best
+      // effort; if migration fails the user can still authenticate.
+      const legacyToken = raw.token ?? null
+      try {
+        if (legacyToken) writeAuthData({ token: legacyToken })
+      } catch {
+        // ignore — migration is a soft guarantee
+      }
+      return { token: legacyToken }
     }
   } catch {
-    // ignore
+    // Corrupted / unreadable file — fall back to "not signed in" so the
+    // app guides the user to onboarding rather than crashing.
   }
   return { token: null }
 }
 
 function writeAuthData(data: AuthData): void {
-  writeFileSync(getAuthFilePath(), JSON.stringify(data, null, 2), 'utf-8')
+  const payload = data.token ? encryptString(JSON.stringify(data.token)) : ''
+  const envelope: OnDiskAuth = {
+    version: AUTH_FILE_VERSION,
+    payload
+  }
+  const path = getAuthFilePath()
+  writeFileSync(path, JSON.stringify(envelope, null, 2), 'utf-8')
+  try {
+    // POSIX: lock the file to owner read/write so other local users can't
+    // exfiltrate the encrypted blob and brute-force it offline. No-op on
+    // Windows (chmodSync silently ignores most mode bits there).
+    chmodSync(path, 0o600)
+  } catch {
+    // ignore — best effort
+  }
 }
 
 export function saveToken(token: StoredToken): void {
@@ -124,36 +168,53 @@ function coerceProviderType(raw: unknown): AuthProviderType {
 
 async function discoverProviders(sasoServerUrl: string): Promise<ServerAuthDiscovery> {
   if (!sasoServerUrl) return LOCAL_ONLY_FALLBACK
+  const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/providers`
+  // Let network errors / aborts propagate to the IPC layer so the renderer
+  // can render the diagnostic banner. Returning LOCAL_ONLY_FALLBACK here
+  // (the old behaviour) collapsed "the server is unreachable" into "the
+  // server explicitly told us there are zero providers", which made
+  // Login.tsx silently disable the username / password form on every
+  // flaky-network start.
+  let response: Response
   try {
-    const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/auth/providers`
-    const response = await fetchWithTimeout(url, {
-      headers: { Accept: 'application/json' }
-    })
-    if (!response.ok) return LOCAL_ONLY_FALLBACK
-    const raw = (await response.json()) as Record<string, unknown>
-    const providers = Array.isArray(raw.providers)
-      ? raw.providers.map((p: Record<string, unknown>) => ({
-          id: Number(p.id ?? 0),
-          name: String(p.name ?? ''),
-          type: coerceProviderType(p.type),
-          isDefault: Boolean(p.isDefault),
-          enabled: Boolean(p.enabled)
-        }))
-      : []
-    if (providers.length === 0) return LOCAL_ONLY_FALLBACK
-    const strategy = raw.authStrategy
-    return {
-      serverName: String(raw.serverName ?? ''),
-      version: String(raw.version ?? ''),
-      mobileSetupUrl: String(raw.mobileSetupUrl ?? ''),
-      authStrategy:
-        strategy === 'local-only' || strategy === 'default-only' || strategy === 'user-choice'
-          ? strategy
-          : 'local-only',
-      providers
+    response = await fetchWithTimeout(url, { headers: { Accept: 'application/json' } })
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new Error(`タイムアウト (${PUBLIC_FETCH_TIMEOUT_MS / 1000}秒)`)
     }
+    throw new Error('プロバイダー情報の取得に失敗しました')
+  }
+  if (!response.ok) {
+    // 404 means this server pre-dates the provider discovery endpoint —
+    // safe to treat as local-only. Anything else is a real failure.
+    if (response.status === 404) return LOCAL_ONLY_FALLBACK
+    throw new Error(`HTTP ${response.status}`)
+  }
+  let raw: Record<string, unknown>
+  try {
+    raw = (await response.json()) as Record<string, unknown>
   } catch {
-    return LOCAL_ONLY_FALLBACK
+    throw new Error('プロバイダー応答の解析に失敗しました')
+  }
+  const providers = Array.isArray(raw.providers)
+    ? raw.providers.map((p: Record<string, unknown>) => ({
+        id: Number(p.id ?? 0),
+        name: String(p.name ?? ''),
+        type: coerceProviderType(p.type),
+        isDefault: Boolean(p.isDefault),
+        enabled: Boolean(p.enabled)
+      }))
+    : []
+  const strategy = raw.authStrategy
+  return {
+    serverName: String(raw.serverName ?? ''),
+    version: String(raw.version ?? ''),
+    mobileSetupUrl: String(raw.mobileSetupUrl ?? ''),
+    authStrategy:
+      strategy === 'local-only' || strategy === 'default-only' || strategy === 'user-choice'
+        ? strategy
+        : 'local-only',
+    providers
   }
 }
 
@@ -167,7 +228,7 @@ async function exchangePairingForJwt(
   deviceName: string
 ): Promise<StoredToken> {
   const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/mobile/connect`
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -176,8 +237,17 @@ async function exchangePairingForJwt(
     body: JSON.stringify({ token: rawToken, deviceName })
   })
   if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`/mobile/connect failed: ${response.status} ${text}`)
+    // Read & discard the response body so the connection can be released,
+    // but only forward an RFC 7807 `code` if the server sent one. Echoing
+    // a raw stack trace or internal error path to the renderer leaks more
+    // than the user needs and ends up in screenshots / support tickets.
+    const problem = await parseProblemJson(response)
+    const safeDetail = problem.code || problem.title || ''
+    throw new Error(
+      safeDetail
+        ? `ペアリング失敗 (HTTP ${response.status} ${safeDetail})`
+        : `ペアリング失敗 (HTTP ${response.status})`
+    )
   }
   const data = (await response.json()) as StoredToken
   if (!data.expires_at && data.expires_in) {
@@ -351,14 +421,22 @@ export async function refreshIfNeeded(sasoServerUrl: string): Promise<StoredToke
   if (expiresAtMs - Date.now() > 60_000) return token
 
   const url = `${normalizeServerUrl(sasoServerUrl)}/api/v1/mobile/token/refresh`
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json'
-    },
-    body: JSON.stringify({ refresh_token: token.refresh_token })
-  })
+  let response: Response
+  try {
+    response = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      },
+      body: JSON.stringify({ refresh_token: token.refresh_token })
+    })
+  } catch {
+    // Network error / abort. Don't drop the local token here — the caller
+    // (syncRequest) will surface the auth failure once the bearer call
+    // fails, and we want offline clients to keep their last good token.
+    return null
+  }
   if (!response.ok) {
     return null
   }
